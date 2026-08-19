@@ -99,7 +99,16 @@ export function safeAssetPath(dir: string, relative: unknown): string {
 }
 
 export function storySlug(title: string): string {
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+  // Keep Unicode letters. The first version stripped everything outside [a-z0-9], so a
+  // Telugu title collapsed to nothing and the folder became story-<timestamp> -- unreadable,
+  // and the whole point of these folders is that she can find her story in them. The source
+  // pages are not always English: the first one she brought was a Telugu storybook.
+  const slug = title
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
   return slug || `story-${Date.now()}`;
 }
 

@@ -65,6 +65,13 @@ For each one:
   the character's name, and do not name any real, mythological or historical figure.
 - `portrait_pose`: a neutral standing or four-legged pose for a character reference sheet,
   facing slightly to one side, whole body visible, nothing occluding it.
+- `proper_names`: every PROPER NAME this character is known by in the story -- personal
+  names, and the names of real, mythological or historical figures. For "Vishnu Sharma"
+  that is ["Vishnu", "Sharma"]. Leave it EMPTY for a purely descriptive name: "The fox",
+  "The priest", "The village youths" contain no proper names at all. This list is what a
+  later check uses to keep names out of the video prompt, so a common noun listed here
+  would wrongly block the story, and a missed personal name would let the video model
+  substitute its own idea of that figure.
 
 Never put a name inside `appearance` or `portrait_pose`."""
 
@@ -92,9 +99,15 @@ SCHEMA = {
                     "count": {"type": "integer"},
                     "appearance": {"type": "string"},
                     "portrait_pose": {"type": "string"},
+                    "proper_names": {
+                        "type": "array",
+                        "description": "Personal or historical names only; empty for a "
+                                       "descriptive name.",
+                        "items": {"type": "string"},
+                    },
                 },
                 "required": ["name", "kind", "species", "gender", "role", "count",
-                             "appearance", "portrait_pose"],
+                             "appearance", "portrait_pose", "proper_names"],
             },
         },
     },
@@ -105,15 +118,16 @@ NAME_TOKEN_MIN = 4
 
 
 def leaked_names(cast: list[dict]) -> list[str]:
-    """Guard the one rule H3 cares about: no real names in the visual fields."""
+    """Guard the one rule H3 cares about: no real names in the visual fields.
+
+    Uses the names the model itself declared, rather than guessing which words of a display
+    name are a name -- guessing flagged "village" in "The village youths" and blocked a
+    whole story.
+    """
     problems = []
     for c in cast:
-        tokens = [t.strip(".,'\"") for t in c["name"].split()]
-        distinctive = [t for t in tokens
-                       if len(t) >= NAME_TOKEN_MIN and t.lower() not in {
-                           "the", "priest", "king", "fox", "stork", "goat", "lion",
-                           "donkey", "jackal", "thief", "thieves", "prince", "princes",
-                           "minister", "ministers", "advisor", "teacher", "sons", "old"}]
+        distinctive = [w for w in (str(n).strip() for n in c.get("proper_names") or [])
+                       if len(w) >= NAME_TOKEN_MIN]
         for field in ("appearance", "portrait_pose"):
             low = c[field].lower()
             for tok in distinctive:

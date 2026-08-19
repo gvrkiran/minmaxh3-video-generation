@@ -32,17 +32,68 @@ DIALOGUE_RE = re.compile(r"<d>.*?</d>", re.S | re.I)
 SUBJECT_RE = re.compile(r"<Subject\s+(\d+)>", re.I)
 PICTURE_RE = re.compile(r"<Picture\s+(\d+)>", re.I)
 
-# Words that are roles or species rather than identities; safe to appear in prose.
+# Which words in a character's name are actually a NAME.
+#
+# The point of the check is narrow: a proper name like Vishnu Sharma or Amarshakti makes H3
+# substitute its own learned idea of that figure and ignore the supplied artwork. A common
+# noun does not -- H3 has no competing prior for "village".
+#
+# The first version inferred this from a blocklist of role and species words, which cannot
+# ever be complete: a character called "The village youths" tokenised to village + youths,
+# neither was on the list, and every mention of a village path in the prose failed the check
+# and blocked the whole story. So the extractor is now asked directly (`proper_names`), and
+# the heuristic below is only a fallback for casts recorded before that field existed.
+#
+# The fallback is deliberately conservative, because the two failure modes are not
+# symmetric: a false positive blocks her from making anything at all, while a false negative
+# means at worst one character drifts in one shot, which she can see and redo.
 GENERIC = {
-    "the", "a", "an", "old", "young", "three", "two", "first", "second", "third",
-    "priest", "king", "queen", "prince", "princes", "minister", "ministers", "advisor",
-    "advisors", "teacher", "guru", "pandit", "merchant", "farmer", "thief", "thieves",
-    "hunter", "washerman", "barber", "boy", "girl", "man", "woman", "sons", "son",
-    "fox", "stork", "goat", "lion", "donkey", "jackal", "crow", "monkey", "rabbit",
-    "hare", "tortoise", "elephant", "mouse", "rat", "snake", "crane", "deer", "bull",
-    "cat", "dog", "tiger", "wolf", "bear", "camel", "horse", "cow", "calf", "swan",
-    "pigeon", "sparrow", "frog", "fish", "bird", "animal", "animals",
+    # articles, numbers, ordinals
+    "the", "a", "an", "and", "of", "old", "young", "little", "big", "elder", "eldest",
+    "one", "two", "three", "four", "first", "second", "third", "last", "other",
+    # roles
+    "priest", "king", "queen", "prince", "princes", "princess", "minister", "ministers",
+    "advisor", "advisors", "teacher", "guru", "pandit", "sage", "hermit", "merchant",
+    "trader", "farmer", "shepherd", "thief", "thieves", "robber", "robbers", "hunter",
+    "washerman", "barber", "potter", "weaver", "carpenter", "cook", "servant", "guard",
+    "soldier", "beggar", "doctor", "astrologer", "boatman", "fisherman", "youth", "youths",
+    "boy", "boys", "girl", "girls", "man", "men", "woman", "women", "child", "children",
+    "son", "sons", "daughter", "daughters", "father", "mother", "brother", "sister",
+    "wife", "husband", "friend", "friends", "neighbour", "neighbours", "stranger",
+    "villager", "villagers", "traveller", "travellers", "companion", "companions",
+    # places and things that show up in names
+    "village", "town", "city", "forest", "jungle", "river", "well", "temple", "palace",
+    "market", "house", "hut", "field", "mountain", "road", "path",
+    # species
+    "fox", "stork", "goat", "lion", "donkey", "jackal", "crow", "monkey", "rabbit", "hare",
+    "tortoise", "turtle", "elephant", "mouse", "rat", "snake", "cobra", "crane", "deer",
+    "bull", "ox", "cat", "dog", "tiger", "wolf", "bear", "camel", "horse", "cow", "calf",
+    "swan", "pigeon", "sparrow", "parrot", "peacock", "frog", "fish", "crab", "bird",
+    "birds", "animal", "animals", "beast", "cub", "fawn", "mongoose", "heron", "owl",
+    "vulture", "eagle", "hen", "rooster", "pig", "buffalo", "mule", "ass", "louse", "flea",
 }
+
+
+def identity_words(character: dict | str) -> list[str]:
+    """The words in this character's name that would activate a model prior.
+
+    Prefers the extractor's own `proper_names`. Falls back, for older records, to tokens of
+    the display name that are capitalised (past any leading article) and not common nouns.
+    """
+    if isinstance(character, dict):
+        declared = character.get("proper_names")
+        if isinstance(declared, list):
+            # Authoritative: an empty list means "this character has no name to leak".
+            return [w for w in (str(d).strip() for d in declared) if len(w) >= 3]
+        name = str(character.get("name", ""))
+    else:
+        name = str(character)
+
+    tokens = [w for w in re.split(r"[^A-Za-z]+", name) if w]
+    if tokens and tokens[0].lower() in {"the", "a", "an"}:
+        tokens = tokens[1:]
+    return [w for w in tokens
+            if len(w) >= 3 and w.lower() not in GENERIC and w[:1].isupper()]
 
 
 def frames_for(seconds: float) -> int:
@@ -54,12 +105,6 @@ def frames_for(seconds: float) -> int:
 
 def seconds_for(frames: int) -> float:
     return frames / FPS
-
-
-def identity_words(name: str) -> list[str]:
-    """The parts of a character's name that would activate a model prior."""
-    return [w for w in re.split(r"[^A-Za-z]+", name)
-            if len(w) >= 3 and w.lower() not in GENERIC]
 
 
 def build_prompt(*, action: str, subjects: list[dict], soundscape: str, music: str,
@@ -154,7 +199,7 @@ def validate_prompt(prompt: str, subjects: list[dict], telling_mode: str = "sile
     # -- the big one: no real names outside a <d> tag
     outside = DIALOGUE_RE.sub(" ", prompt)
     for s in subjects:
-        for word in identity_words(s.get("name", "")):
+        for word in identity_words(s):
             if re.search(rf"\b{re.escape(word)}\b", outside, re.I):
                 errors.append(f"character name '{word}' appears in the prompt outside a <d> tag "
                               f"-- H3 will substitute its own idea of the character")
