@@ -6,7 +6,7 @@
  */
 import path from "node:path";
 import {
-  MODULE_PATHS, readJson, readProgress, runPython, safeStoryDir,
+  MODULE_PATHS, readJson, readProgress, runPython, safeStoryDir, fail,
 } from "@/lib/story-runner";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
       }),
     });
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Could not plan the scenes.";
-    return Response.json({ error: message }, { status: 500 });
+    return fail('Plan the scenes', caught,
+      { status: 500, hint: 'Nothing was lost. Press the same button again.' });
   }
 }

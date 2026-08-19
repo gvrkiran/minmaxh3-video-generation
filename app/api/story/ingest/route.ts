@@ -2,7 +2,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
-  MODULE_PATHS, STORIES_ROOT, exists, readJson, runPython, storySlug,
+  MODULE_PATHS, STORIES_ROOT, exists, readJson, runPython, storySlug, fail,
 } from "@/lib/story-runner";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
       note: story.note_for_her ?? "",
     });
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Could not read the story.";
-    return Response.json({ error: message }, { status: 500 });
+    return fail('Read the story', caught,
+      { status: 500, hint: 'The photos are saved. Press the same button again to read them again.' });
   }
 }

@@ -5,7 +5,7 @@
  */
 import { promises as fs } from "node:fs";
 import {
-  MODULE_PATHS, join, readJson, readProgress, safeStoryDir, startDetached,
+  MODULE_PATHS, join, readJson, readProgress, safeStoryDir, startDetached, fail,
 } from "@/lib/story-runner";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
     return Response.json({ started: true, pid, index, progress: await readProgress(dir) });
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Could not redo that scene.";
-    return Response.json({ error: message }, { status: 500 });
+    return fail('Make this scene again', caught,
+      { status: 500, hint: 'The rest of the video is untouched.' });
   }
 }

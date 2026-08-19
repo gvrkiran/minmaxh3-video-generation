@@ -37,7 +37,9 @@ def _sf_load(uri, *a, **k):
 torchaudio.load = _sf_load
 
 SR = 24000
-VOICES = Path(r"C:\Users\kg766\Documents\Codex\2026-08-13\can-you\work\indicf5\voices")
+# The reference clips live in the app's work/ directory. Derived from this file's own
+# location rather than hardcoded, because the repo has already moved once.
+VOICES = Path(__file__).resolve().parents[3] / "work" / "indicf5" / "voices"
 BUILTIN = {
     "female": (VOICES / "built-in-female.wav",
                "ਇੱਕ ਗ੍ਰਾਹਕ ਨੇ ਸਾਡੀ ਬੇਮਿਸਾਲ ਸੇਵਾ ਬਾਰੇ ਦਿਲੋਂ ਗਵਾਹੀ ਦਿੱਤੀ ਜਿਸ ਨਾਲ ਸਾਨੂੰ ਅਨੰਦ ਮਹਿਸੂਸ ਹੋਇਆ।"),

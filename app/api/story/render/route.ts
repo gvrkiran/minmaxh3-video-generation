@@ -1,5 +1,5 @@
 /** Screen 6: start the long part, detached, and let her close the laptop. */
-import { readProgress, safeStoryDir, startRender } from "@/lib/story-runner";
+import { fail, readProgress, safeStoryDir, startRender } from "@/lib/story-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     const pid = await startRender(dir, aspect, voice);
     return Response.json({ started: true, pid, progress: await readProgress(dir) });
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Could not start making the video.";
-    return Response.json({ error: message }, { status: 500 });
+    return fail('Make my video', caught,
+      { status: 500, hint: 'Scenes already finished are kept; it carries on from where it stopped.' });
   }
 }

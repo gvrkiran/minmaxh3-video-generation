@@ -13,6 +13,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Screen = "home" | "source" | "check" | "cast" | "listen" | "making" | "review";
 
+type Failure = {
+  step: string;
+  kind: "network" | "timeout" | "server";
+  message: string;      // for her
+  detail: string;       // for whoever fixes it
+  ref: string;          // she reads this out; the server logged the same code
+  hint?: string;        // what to do about it
+  seconds: number;
+};
+
 type Filled = { before: string; inserted: string; after: string; confidence: string };
 type Character = {
   key: string; name: string; species: string; role: string;
@@ -56,6 +66,7 @@ const COPY = {
     ready: "Your video is ready", download: "Download", makeAnother: "Make another",
     back: "Back", working: "Working…", somethingWrong: "Something went wrong",
     startOver: "Start over", scene: "Scene",
+    tellThem: "What to tell Kiran", copyIt: "Copy this",
     checkScenes: "Check each scene", reviewTitle: "How does each scene look?",
     reviewSub: "Watch them one at a time. If one is wrong, say what is wrong and I will make it again.",
     whatsWrong: "What is wrong with this scene?",
@@ -86,6 +97,7 @@ const COPY = {
     ready: "మీ వీడియో సిద్ధం", download: "డౌన్‌లోడ్", makeAnother: "మరొకటి చేయండి",
     back: "వెనుకకు", working: "జరుగుతోంది…", somethingWrong: "ఏదో తప్పు జరిగింది",
     startOver: "మొదటి నుంచి", scene: "సన్నివేశం",
+    tellThem: "కిరణ్‌కి ఏమి చెప్పాలి", copyIt: "ఇది కాపీ చేయండి",
     checkScenes: "ఒక్కో సన్నివేశం చూడండి", reviewTitle: "ప్రతి సన్నివేశం ఎలా ఉంది?",
     reviewSub: "ఒక్కొక్కటి చూడండి. ఏదైనా సరిగా లేకపోతే, ఏమి తప్పు అని చెప్పండి, మళ్ళీ చేస్తాను.",
     whatsWrong: "ఈ సన్నివేశంలో ఏమి తప్పు?",
@@ -101,7 +113,7 @@ export default function StoryStudio() {
 
   const [screen, setScreen] = useState<Screen>("home");
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
 
   const [past, setPast] = useState<PastStory[]>([]);
   const [aspect, setAspect] = useState<"9:16" | "16:9">("9:16");
@@ -136,8 +148,8 @@ export default function StoryStudio() {
   // Bring a failure into view. Sticky positioning is not enough on its own if she is
   // already scrolled past it when the request comes back.
   useEffect(() => {
-    if (error) errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [error]);
+    if (failure) errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [failure]);
 
   // Polling stops as soon as the film exists, so a finished tab is not a busy tab.
   useEffect(() => {
@@ -160,18 +172,58 @@ export default function StoryStudio() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [screen, storyDir, loadPast]);
 
-  async function call<T>(url: string, init: RequestInit, label: string): Promise<T | null> {
+  /**
+   * Long steps here take minutes -- drawing a cast can take four if the video model has to
+   * be swapped out of the graphics card first. A plain "Failed to fetch" is what the browser
+   * says when the connection drops during that, and it tells her nothing about whether her
+   * work survived. So the three cases are separated and each says what to do next.
+   */
+  async function call<T>(url: string, init: RequestInit, label: string,
+                         budgetMs = 900_000): Promise<T | null> {
     setBusy(label);
-    setError(null);
+    setFailure(null);
+    const startedAt = Date.now();
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort("timeout"), budgetMs);
     try {
-      const response = await fetch(url, init);
-      const payload = await response.json();
-      if (!response.ok || payload.error) throw new Error(payload.error || t.somethingWrong);
+      const response = await fetch(url, { ...init, signal: abort.signal });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.error) {
+        setFailure({
+          step: label,
+          kind: "server",
+          message: payload.error || `The studio could not finish "${label}".`,
+          hint: payload.hint,
+          detail: [payload.detail, `HTTP ${response.status} from ${url}`]
+            .filter(Boolean).join(" | "),
+          ref: payload.ref || "",
+          seconds: Math.round((Date.now() - startedAt) / 1000),
+        });
+        return null;
+      }
       return payload as T;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t.somethingWrong);
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      const timedOut = abort.signal.aborted;
+      setFailure({
+        step: label,
+        kind: timedOut ? "timeout" : "network",
+        message: timedOut
+          ? `"${label}" ran for ${Math.round(seconds / 60)} minutes and I stopped waiting. `
+            + "It may still be finishing on the studio computer. Wait a minute, then press the "
+            + "same button again -- anything already done is kept."
+          : `The connection to the studio computer dropped during "${label}", after `
+            + `${seconds} seconds. You did nothing wrong: the studio may have restarted, or `
+            + "the network dropped. Press the same button again -- anything already finished "
+            + "is kept, so it will not start over.",
+        detail: [caught instanceof Error ? `${caught.name}: ${caught.message}` : String(caught),
+                 `after ${seconds}s`, url].join(" | "),
+        ref: new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14),
+        seconds,
+      });
       return null;
     } finally {
+      clearTimeout(timer);
       setBusy(null);
     }
   }
@@ -247,7 +299,7 @@ export default function StoryStudio() {
   function reset() {
     setScreen("home"); setTyped(""); setPhotos([]); setStoryDir(""); setTitle("");
     setStoryText(""); setMoral(""); setFilledIn([]); setNote("");
-    setCharacters([]); setScenes([]); setProgress(null); setError(null);
+    setCharacters([]); setScenes([]); setProgress(null); setFailure(null);
     setSceneNotes({}); setRedoing(null);
     void loadPast();
   }
@@ -264,11 +316,37 @@ export default function StoryStudio() {
         </button>
       </header>
 
-      {error && (
+      {failure && (
         <div className="ks-error" role="alert" ref={errorRef}>
-          <strong>{t.somethingWrong}</strong>
-          <span>{error}</span>
-          <button onClick={() => setError(null)}>×</button>
+          <div className="ks-error-body">
+            <strong>{t.somethingWrong}</strong>
+            <p className="ks-error-msg">{failure.message}</p>
+            {failure.hint && <p className="ks-error-hint">{failure.hint}</p>}
+            <details>
+              <summary>{t.tellThem}</summary>
+              <pre className="ks-error-detail">{[
+                `step:    ${failure.step}`,
+                `problem: ${failure.kind}`,
+                `ref:     ${failure.ref}`,
+                `after:   ${failure.seconds}s`,
+                `detail:  ${failure.detail}`,
+              ].join(String.fromCharCode(10))}</pre>
+              <button
+                onClick={() => navigator.clipboard?.writeText([
+                  `Kathalu Studio problem`,
+                  `step: ${failure.step}`,
+                  `problem: ${failure.kind}`,
+                  `ref: ${failure.ref}`,
+                  `after: ${failure.seconds}s`,
+                  `detail: ${failure.detail}`,
+                ].join(String.fromCharCode(10)))}
+              >
+                {t.copyIt}
+              </button>
+            </details>
+          </div>
+          <button className="ks-error-x" onClick={() => setFailure(null)}
+            aria-label="Close">×</button>
         </div>
       )}
 
@@ -490,7 +568,8 @@ export default function StoryStudio() {
           )}
 
           {progress?.failed && !progress.finalReady && (
-            <details className="ks-detail"><summary>{t.somethingWrong}</summary>
+            <details className="ks-detail">
+              <summary>{t.tellThem}</summary>
               <pre>{progress.failed}</pre>
               <button onClick={makeVideo}>{t.makeMyVideo}</button>
             </details>

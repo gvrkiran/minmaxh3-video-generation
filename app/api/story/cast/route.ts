@@ -2,7 +2,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
-  LIBRARY_ROOT, MODULE_PATHS, readJson, runPython, safeStoryDir,
+  LIBRARY_ROOT, MODULE_PATHS, readJson, runPython, safeStoryDir, fail,
 } from "@/lib/story-runner";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ async function castPayload(dir: string) {
   const files = await fs.readdir(LIBRARY_ROOT).catch(() => [] as string[]);
   const records = (await Promise.all(
     files.filter((f) => f.endsWith(".json")).map((f) => readJson<Record_>(path.join(LIBRARY_ROOT, f))),
-  )).filter((r): r is Record_ => Boolean(r) && wanted.includes(r.name));
+  )).filter((r): r is Record_ => r !== null && wanted.includes(r.name));
 
   // Keep her cast in the order the extractor ranked them, not the order the disk happens to list.
   records.sort((a, b) => wanted.indexOf(a.name) - wanted.indexOf(b.name));
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
 
     return Response.json(await castPayload(dir));
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Could not build the cast.";
-    return Response.json({ error: message }, { status: 500 });
+    return fail('Meet the characters', caught,
+      { status: 500, hint: 'Characters already drawn are kept. Press the same button again.' });
   }
 }

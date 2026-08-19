@@ -181,6 +181,44 @@ export async function exists(file: string) {
   }
 }
 
+/* --------------------------------------------------------------- failures */
+
+export const ERROR_LOG = `${REPO}/work/story-errors.log`;
+
+/**
+ * Record a failure and hand back a response she can act on.
+ *
+ * Two audiences at once. `error` is written for her -- plain language, says whether her work
+ * survived. `ref` is a timestamp she can read out, and the same ref is written to
+ * work/story-errors.log with the full technical detail, so the person fixing it can find the
+ * exact incident instead of asking her to describe it.
+ */
+export async function fail(
+  step: string, caught: unknown, opts: { status?: number; storyDir?: string; hint?: string } = {},
+) {
+  const ref = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  const detail = caught instanceof Error ? (caught.stack || caught.message) : String(caught);
+  const line = [
+    `[${new Date().toISOString()}] ref=${ref} step=${step}`,
+    opts.storyDir ? `story=${opts.storyDir}` : "",
+    detail.replace(/\s+/g, " ").slice(0, 1800),
+  ].filter(Boolean).join(" | ");
+  try {
+    await fs.mkdir(ERROR_LOG.slice(0, ERROR_LOG.lastIndexOf("/")), { recursive: true });
+    await fs.appendFile(ERROR_LOG, line + String.fromCharCode(10), "utf8");
+  } catch {
+    /* logging must never be the thing that fails a request */
+  }
+  const message = caught instanceof Error ? caught.message : "Something went wrong.";
+  return Response.json({
+    error: message,
+    step,
+    ref,
+    hint: opts.hint,
+    detail: detail.slice(0, 900),
+  }, { status: opts.status ?? 500 });
+}
+
 /* -------------------------------------------------------------- progress */
 
 export type SceneProgress = {

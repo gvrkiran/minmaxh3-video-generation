@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$studioRoot = "C:\Users\kg766\Documents\Codex\2026-08-13\can-you"
+$studioRoot = "H:\KathaluStudio\app"
 $logRoot = Join-Path $studioRoot "work"
 $stdoutLog = Join-Path $logRoot "h3-studio.stdout.log"
 $stderrLog = Join-Path $logRoot "h3-studio.stderr.log"

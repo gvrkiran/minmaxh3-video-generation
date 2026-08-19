@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Continue"
 
-$studioRoot = "C:\Users\kg766\Documents\Codex\2026-08-13\can-you"
+$studioRoot = "H:\KathaluStudio\app"
 $startScript = Join-Path $studioRoot "scripts\start-h3-studio.ps1"
 $logPath = Join-Path $studioRoot "work\h3-watchdog.log"
 $tailscaleExe = "C:\Program Files\Tailscale\tailscale.exe"
