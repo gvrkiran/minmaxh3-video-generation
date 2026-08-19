@@ -1,0 +1,10 @@
+fastapi==0.116.1
+datasets==5.0.1
+httpx==0.28.1
+matplotlib==3.11.1
+numpy==1.26.4
+python-multipart==0.0.20
+soundfile==0.13.1
+transformers==4.49.0
+uvicorn[standard]==0.35.0
+wandb==0.28.2
