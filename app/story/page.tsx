@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type Screen = "home" | "source" | "check" | "cast" | "listen" | "making" | "review";
+type Screen = "home" | "source" | "check" | "cast" | "listen" | "making" | "edit";
 
 type Failure = {
   step: string;
@@ -35,8 +35,22 @@ type Scene = {
 type Progress = {
   stage: "idle" | "narrating" | "rendering" | "assembling" | "done";
   label: string; scenesDone: number; scenesTotal: number;
-  minutesLeft: number | null; finalReady: boolean; scenes: Scene[]; failed?: string;
+  minutesLeft: number | null; finalReady: boolean; finalUpdatedAt: number | null;
+  scenes: Scene[]; failed?: string;
 };
+type EditScene = {
+  index: number; summary: string; telugu: string; characters: string[];
+  seconds?: number; ready: boolean; video: string | null; audio: string | null;
+  lastNote: string; lastChange: string;
+};
+type OpenStory = {
+  storyDir: string; title: string; teluguTitle: string;
+  moral: { telugu: string; english: string; source: string; video: string | null };
+  finalVideo: string | null; scenes: EditScene[]; lastApplied: string[]; progress: Progress;
+};
+/** One row of pending intent. Nothing is sent for a scene she has not touched. */
+type PendingEdit = { note: string; telugu: string; remove: boolean };
+
 type PastStory = {
   dir: string; title: string; teluguTitle: string; scenes: number;
   megabytes: number; video: string;
@@ -67,6 +81,15 @@ const COPY = {
     back: "Back", working: "Working…", somethingWrong: "Something went wrong",
     startOver: "Start over", scene: "Scene",
     tellThem: "What to tell Kiran", copyIt: "Copy this",
+    edit: "Edit", editTitle: "Change your video",
+    editSub: "Watch any scene. Say what is wrong with it, or fix the words the narrator says. Change as many as you like, then make the changes all at once.",
+    wholeVideo: "The whole video", theLesson: "The lesson at the end",
+    narratorSays: "What the narrator says", whatsWrongShort: "What is wrong with this scene?",
+    leaveOut: "Leave this scene out", changed: "changed",
+    pendingOne: "1 change ready", pendingMany: "changes ready",
+    makeChanges: "Make the changes", rebuilding: "Making your new video",
+    nothingChanged: "Nothing changed yet", lastTime: "Last time you changed:",
+    revert: "Undo this change", done: "Done editing", secondsShort: "s",
     checkScenes: "Check each scene", reviewTitle: "How does each scene look?",
     reviewSub: "Watch them one at a time. If one is wrong, say what is wrong and I will make it again.",
     whatsWrong: "What is wrong with this scene?",
@@ -98,6 +121,15 @@ const COPY = {
     back: "వెనుకకు", working: "జరుగుతోంది…", somethingWrong: "ఏదో తప్పు జరిగింది",
     startOver: "మొదటి నుంచి", scene: "సన్నివేశం",
     tellThem: "కిరణ్‌కి ఏమి చెప్పాలి", copyIt: "ఇది కాపీ చేయండి",
+    edit: "మార్చండి", editTitle: "మీ వీడియో మార్చండి",
+    editSub: "ఏ సన్నివేశమైనా చూడండి. ఏమి తప్పు అని చెప్పండి, లేదా కథకుడు చెప్పే మాటలు సరిచేయండి. ఎన్ని అయినా మార్చి, ఒకేసారి చేయించండి.",
+    wholeVideo: "పూర్తి వీడియో", theLesson: "చివరిలో నీతి",
+    narratorSays: "కథకుడు చెప్పేది", whatsWrongShort: "ఈ సన్నివేశంలో ఏమి తప్పు?",
+    leaveOut: "ఈ సన్నివేశం వదిలేయండి", changed: "మార్చారు",
+    pendingOne: "1 మార్పు సిద్ధం", pendingMany: "మార్పులు సిద్ధం",
+    makeChanges: "మార్పులు చేయండి", rebuilding: "మీ కొత్త వీడియో తయారవుతోంది",
+    nothingChanged: "ఇంకా ఏమీ మార్చలేదు", lastTime: "గత సారి మార్చినవి:",
+    revert: "ఈ మార్పు రద్దు", done: "మార్చడం పూర్తి", secondsShort: "సె",
     checkScenes: "ఒక్కో సన్నివేశం చూడండి", reviewTitle: "ప్రతి సన్నివేశం ఎలా ఉంది?",
     reviewSub: "ఒక్కొక్కటి చూడండి. ఏదైనా సరిగా లేకపోతే, ఏమి తప్పు అని చెప్పండి, మళ్ళీ చేస్తాను.",
     whatsWrong: "ఈ సన్నివేశంలో ఏమి తప్పు?",
@@ -133,8 +165,13 @@ export default function StoryStudio() {
 
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [progress, setProgress] = useState<Progress | null>(null);
-  const [sceneNotes, setSceneNotes] = useState<Record<number, string>>({});
-  const [redoing, setRedoing] = useState<number | null>(null);
+  const [open, setOpen] = useState<OpenStory | null>(null);
+  const [edits, setEdits] = useState<Record<number, PendingEdit>>({});
+  const [moralEdit, setMoralEdit] = useState<{ telugu: string; english: string } | null>(null);
+  const [rebuilding, setRebuilding] = useState(false);
+  // The moment she asked for changes. A rebuild is only finished once final.mp4 is
+  // NEWER than this -- otherwise the previous film, still on disk, reads as done.
+  const [rebuildFrom, setRebuildFrom] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const errorRef = useRef<HTMLDivElement | null>(null);
 
@@ -153,16 +190,21 @@ export default function StoryStudio() {
 
   // Polling stops as soon as the film exists, so a finished tab is not a busy tab.
   useEffect(() => {
-    if ((screen !== "making" && screen !== "review") || !storyDir) return;
+    if ((screen !== "making" && screen !== "edit") || !storyDir) return;
     const tick = async () => {
       const got = await fetch(`/api/story/progress?dir=${encodeURIComponent(storyDir)}`)
         .then((r) => r.json()).catch(() => null);
       if (got && !got.error) {
         setProgress(got);
-        if (got.finalReady && pollRef.current) {
+        const fresh = rebuildFrom === null
+          ? got.finalReady
+          : got.finalReady && (got.finalUpdatedAt ?? 0) > rebuildFrom;
+        if (fresh && pollRef.current) {
           clearInterval(pollRef.current);
           pollRef.current = null;
-          setRedoing(null);
+          setRebuildFrom(null);
+          // A finished rebuild means every clip on the editor screen is stale, so reload it.
+          if (screen === "edit") { setRebuilding(false); void openForEdit(storyDir, true); }
           void loadPast();
         }
       }
@@ -170,7 +212,7 @@ export default function StoryStudio() {
     void tick();
     pollRef.current = setInterval(tick, 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [screen, storyDir, loadPast]);
+  }, [screen, storyDir, loadPast, rebuildFrom]);
 
   /**
    * Long steps here take minutes -- drawing a cast can take four if the video model has to
@@ -283,16 +325,57 @@ export default function StoryStudio() {
     setScreen("making");
   }
 
-  async function redoScene(index: number) {
-    const got = await call<any>("/api/story/scene",
+  /** Open a finished film for editing. Reads everything off disk, so it works on a story
+   *  made in an earlier session -- that is the point of having an Edit button at all. */
+  async function openForEdit(dir: string, quiet = false) {
+    const got = quiet
+      ? await fetch(`/api/story/open?dir=${encodeURIComponent(dir)}`)
+          .then((r) => r.json()).catch(() => null)
+      : await call<OpenStory>(`/api/story/open?dir=${encodeURIComponent(dir)}`,
+          { method: "GET" }, t.edit);
+    if (!got || got.error) return;
+    setOpen(got);
+    setStoryDir(got.storyDir);
+    setProgress(got.progress ?? null);
+    if (!quiet) {
+      setEdits({});
+      setMoralEdit(null);
+      setScreen("edit");
+    }
+  }
+
+  function editFor(index: number): PendingEdit {
+    return edits[index] ?? { note: "", telugu: "", remove: false };
+  }
+
+  function setEdit(index: number, patch: Partial<PendingEdit>) {
+    setEdits((prev) => {
+      const next = { ...editFor(index), ...patch };
+      const untouched = !next.note.trim() && !next.telugu.trim() && !next.remove;
+      const out = { ...prev };
+      if (untouched) delete out[index];
+      else out[index] = next;
+      return out;
+    });
+  }
+
+  /** A scene counts as edited only if she typed something or ticked remove. An untouched
+   *  scene is never sent, so it is never re-rendered. */
+  const pendingCount = Object.keys(edits).length + (moralEdit ? 1 : 0);
+
+  async function applyEdits() {
+    const scenes = Object.entries(edits).map(([index, e]) => ({
+      index: Number(index), note: e.note, telugu: e.telugu, remove: e.remove,
+    }));
+    const got = await call<any>("/api/story/edit",
       { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ storyDir, index, note: sceneNotes[index] ?? "", aspect }) },
-      t.redoScene);
+        body: JSON.stringify({ storyDir, scenes, moral: moralEdit ?? undefined, aspect }) },
+      t.makeChanges);
     if (!got) return;
-    // Clear the note only once it has been accepted, and keep polling running so the
-    // dots and the estimate update in place rather than the screen going quiet.
-    setSceneNotes((prev) => ({ ...prev, [index]: "" }));
-    setRedoing(index);
+    setEdits({});
+    setMoralEdit(null);
+    setRebuildFrom(Date.now());
+    setRebuilding(true);
     setProgress(got.progress ?? null);
   }
 
@@ -300,7 +383,8 @@ export default function StoryStudio() {
     setScreen("home"); setTyped(""); setPhotos([]); setStoryDir(""); setTitle("");
     setStoryText(""); setMoral(""); setFilledIn([]); setNote("");
     setCharacters([]); setScenes([]); setProgress(null); setFailure(null);
-    setSceneNotes({}); setRedoing(null);
+    setEdits({}); setOpen(null); setMoralEdit(null); setRebuilding(false);
+    setRebuildFrom(null);
     void loadPast();
   }
 
@@ -375,6 +459,9 @@ export default function StoryStudio() {
                       {s.teluguTitle} · {s.scenes} {lang === "en" && s.scenes !== 1
                         ? `${t.scene.toLowerCase()}s` : t.scene.toLowerCase()} · {s.megabytes} MB
                     </small>
+                    <button className="ks-editbtn" onClick={() => openForEdit(s.dir)}>
+                      {t.edit}
+                    </button>
                   </figcaption>
                 </figure>
               ))}
@@ -561,7 +648,7 @@ export default function StoryStudio() {
                   href={`/api/story/file?dir=${encodeURIComponent(storyDir)}&rel=final.mp4`}>
                   {t.download}
                 </a>
-                <button className="ks-back" onClick={() => setScreen("review")}>{t.checkScenes}</button>
+                <button className="ks-back" onClick={() => openForEdit(storyDir)}>{t.edit}</button>
                 <button className="ks-back" onClick={reset}>{t.makeAnother}</button>
               </div>
             </>
@@ -577,72 +664,131 @@ export default function StoryStudio() {
         </section>
       )}
 
-      {/* -------------------------------------------------------- 7. review */}
-      {screen === "review" && (
+      {/* -------------------------------------------------- 7. the editor */}
+      {screen === "edit" && open && (
         <section className="ks-screen">
-          <h1>{t.reviewTitle}</h1>
-          <p className="ks-sub">{t.reviewSub}</p>
+          <h1>{t.editTitle}</h1>
+          <p className="ks-sub">{t.editSub}</p>
 
-          {progress && !progress.finalReady && (
-            <div className="ks-progress">
-              <p className="ks-stage">
-                {redoing ? `${t.redoing} ${redoing}` : progress.label}
+          {rebuilding && (
+            <div className="ks-progress ks-rebuild">
+              <p className="ks-stage">{t.rebuilding}</p>
+              <p className="ks-eta">
+                {progress?.label ?? t.working}
+                {progress?.minutesLeft != null && ` · about ${progress.minutesLeft} minute${progress.minutesLeft === 1 ? "" : "s"} left`}
               </p>
-              {progress.minutesLeft !== null && (
-                <p className="ks-eta">
-                  about {progress.minutesLeft} minute{progress.minutesLeft === 1 ? "" : "s"} left
-                </p>
-              )}
+              <div className="ks-dots">
+                {(progress?.scenes ?? []).map((s) => (
+                  <span key={s.index} className={s.hasShot ? "done" : ""}>{s.index}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {open.finalVideo && !rebuilding && (
+            <details className="ks-whole" open>
+              <summary>{t.wholeVideo}</summary>
+              <video className="ks-final" controls preload="metadata" src={open.finalVideo} />
+            </details>
+          )}
+
+          {open.lastApplied.length > 0 && (
+            <div className="ks-lastedit">
+              <strong>{t.lastTime}</strong>
+              <ul>{open.lastApplied.map((a, n) => <li key={n}>{a}</li>)}</ul>
             </div>
           )}
 
           <ol className="ks-scenes ks-review">
-            {(progress?.scenes ?? []).map((s) => (
-              <li key={s.index}>
-                <span className="ks-num">{s.index}</span>
-                <div>
-                  <p className="ks-what">{s.summary}</p>
-                  {s.hasShot ? (
-                    <video
-                      className="ks-scene-video"
-                      controls
-                      preload="metadata"
-                      src={`/api/story/file?dir=${encodeURIComponent(storyDir)}&rel=${encodeURIComponent(`narrated/scene_${String(s.index).padStart(2, "0")}.mp4`)}`}
+            {open.scenes.map((s) => {
+              const e = editFor(s.index);
+              const touched = Boolean(edits[s.index]);
+              return (
+                <li key={s.index} className={touched ? "ks-touched" : ""}>
+                  <span className="ks-num">{s.index}</span>
+                  <div>
+                    <p className="ks-what">
+                      {s.summary}
+                      {touched && <em className="ks-badge">{t.changed}</em>}
+                    </p>
+                    {s.video ? (
+                      <video className="ks-scene-video" controls preload="metadata"
+                        src={s.video} />
+                    ) : (
+                      <p className="ks-eta">{t.working}</p>
+                    )}
+
+                    <label className="ks-flabel" htmlFor={`te-${s.index}`}>
+                      {t.narratorSays}
+                    </label>
+                    <textarea
+                      id={`te-${s.index}`}
+                      className="ks-te-edit"
+                      rows={3}
+                      value={e.telugu || s.telugu}
+                      onChange={(ev) => setEdit(s.index, {
+                        telugu: ev.target.value.trim() === s.telugu.trim()
+                          ? "" : ev.target.value,
+                      })}
                     />
-                  ) : (
-                    <p className="ks-eta">{t.working}</p>
-                  )}
-                  <p className="ks-te">{s.telugu}</p>
-                  <div className="ks-edit">
-                    <label htmlFor={`w-${s.index}`}>{t.whatsWrong}</label>
+
+                    <label className="ks-flabel" htmlFor={`no-${s.index}`}>
+                      {t.whatsWrongShort}
+                    </label>
                     <input
-                      id={`w-${s.index}`}
-                      value={sceneNotes[s.index] ?? ""}
-                      onChange={(e) =>
-                        setSceneNotes((prev) => ({ ...prev, [s.index]: e.target.value }))}
+                      id={`no-${s.index}`}
+                      value={e.note}
+                      onChange={(ev) => setEdit(s.index, { note: ev.target.value })}
                     />
-                    <button
-                      disabled={Boolean(busy) || redoing !== null}
-                      onClick={() => redoScene(s.index)}
-                    >
-                      {t.redoScene}
-                    </button>
+
+                    <div className="ks-scenefoot">
+                      <label className="ks-check">
+                        <input type="checkbox" checked={e.remove}
+                          onChange={(ev) => setEdit(s.index, { remove: ev.target.checked })} />
+                        {t.leaveOut}
+                      </label>
+                      {touched && (
+                        <button className="ks-undo" onClick={() => setEdit(s.index, { note: "", telugu: "", remove: false })}>
+                          {t.revert}
+                        </button>
+                      )}
+                    </div>
+                    {s.lastChange && <p className="ks-lastchange">{s.lastChange}</p>}
                   </div>
-                </div>
-                {s.seconds && (
-                  <span className="ks-secs">{s.seconds.toFixed(1)}s</span>
-                )}
-              </li>
-            ))}
+                  {s.seconds && (
+                    <span className="ks-secs">{s.seconds.toFixed(1)}{t.secondsShort}</span>
+                  )}
+                </li>
+              );
+            })}
           </ol>
 
-          <div className="ks-nav">
-            <button className="ks-back" onClick={() => setScreen("making")}>
-              {t.backToVideo}
-            </button>
+          {open.moral.telugu && (
+            <div className="ks-moralbox">
+              <h2>{t.theLesson}</h2>
+              <textarea
+                rows={2}
+                className="ks-te-edit"
+                value={moralEdit ? moralEdit.telugu : open.moral.telugu}
+                onChange={(ev) => setMoralEdit(
+                  ev.target.value.trim() === open.moral.telugu.trim()
+                    ? null
+                    : { telugu: ev.target.value, english: open.moral.english })}
+              />
+              {open.moral.english && <p className="ks-moral">{open.moral.english}</p>}
+            </div>
+          )}
+
+          <div className="ks-nav ks-sticky-nav">
+            <button className="ks-back" onClick={() => setScreen("home")}>{t.done}</button>
+            <span className="ks-pending">{pendingCount === 0 ? t.nothingChanged : pendingCount === 1 ? t.pendingOne : `${pendingCount} ${t.pendingMany}`}</span>
+            <button className="ks-go"
+              disabled={Boolean(busy) || pendingCount === 0 || rebuilding}
+              onClick={applyEdits}>{t.makeChanges}</button>
           </div>
         </section>
       )}
+
     </main>
   );
 }

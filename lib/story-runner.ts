@@ -41,7 +41,7 @@ export const MODULE_PATHS = {
   script: `${KATHALU}/llm/write_script.py`,
   buildCast: `${KATHALU}/cast/build_cast.py`,
   pipeline: `${KATHALU}/render/pipeline.py`,
-  regenScene: `${KATHALU}/render/regen_scene.py`,
+  applyEdits: `${KATHALU}/render/apply_edits.py`,
 } as const;
 
 /* ----------------------------------------------------------------- paths */
@@ -230,6 +230,9 @@ export type Progress = {
   stage: "idle" | "narrating" | "rendering" | "assembling" | "done";
   label: string; scenesDone: number; scenesTotal: number;
   minutesLeft: number | null; finalReady: boolean;
+  /** When final.mp4 was last written. A rebuild begins with the previous film still on
+   *  disk, so `finalReady` alone cannot tell a finished rebuild from a stale one. */
+  finalUpdatedAt: number | null;
   scenes: SceneProgress[]; failed?: string;
 };
 
@@ -268,7 +271,9 @@ export async function readProgress(storyDir: string): Promise<Progress> {
   }
 
   const total = scenes.length;
-  const finalReady = await exists(join(storyDir, "final.mp4"));
+  const finalStat = await fs.stat(join(storyDir, "final.mp4")).catch(() => null);
+  const finalReady = finalStat !== null;
+  const finalUpdatedAt = finalStat ? finalStat.mtimeMs : null;
   const stages = state?.stages ?? {};
   // A redo writes its own log, so check both or a failed redo looks like silence.
   let errText = "";
@@ -304,5 +309,8 @@ export async function readProgress(storyDir: string): Promise<Progress> {
     label = `Recording the telling (${audioDone} of ${total})`;
   }
 
-  return { stage, label, scenesDone: shotsDone, scenesTotal: total, minutesLeft, finalReady, scenes, failed };
+  return {
+    stage, label, scenesDone: shotsDone, scenesTotal: total,
+    minutesLeft, finalReady, finalUpdatedAt, scenes, failed,
+  };
 }

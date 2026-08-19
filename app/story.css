@@ -240,3 +240,80 @@
   background: #fff; border-left: 3px solid var(--ks-accent); border-radius: 0 8px 8px 0;
   color: #6b4a2a;
 }
+
+/* ---------------------------------------------------------------- the editor
+   A scene she has touched is marked, the count of pending changes is always visible, and
+   the one button that commits them sticks to the bottom -- so on a long story she never
+   loses track of what she has changed or how to apply it. */
+.ks-editbtn {
+  margin-top: 10px; min-height: 48px; padding: 0 20px;
+  border: 1px solid var(--ks-accent); border-radius: 11px;
+  background: #fdf6ef; color: var(--ks-accent-deep);
+  font-size: 15.5px; font-weight: 600; cursor: pointer;
+}
+.ks-editbtn:hover { background: var(--ks-accent); color: #fff; }
+
+.ks-whole { margin: 0 0 22px; }
+.ks-whole summary {
+  cursor: pointer; font-size: 17px; font-weight: 600; padding: 12px 0;
+}
+.ks-lastedit {
+  margin: 0 0 22px; padding: 16px 20px; background: #f2f8f4;
+  border: 1px solid #cfe3d6; border-radius: 14px; font-size: 15.5px;
+}
+.ks-lastedit ul { margin: 8px 0 0; padding-left: 20px; color: #3d6b52; }
+.ks-lastedit li { margin-bottom: 4px; }
+
+.ks-touched { border-color: var(--ks-accent); background: #fffcf8; }
+.ks-badge {
+  margin-left: 10px; padding: 3px 9px; border-radius: 999px; font-style: normal;
+  background: var(--ks-accent); color: #fff; font-size: 12.5px; font-weight: 600;
+}
+.ks-flabel {
+  display: block; margin: 14px 0 6px; font-size: 14.5px; font-weight: 600;
+  color: var(--ks-soft);
+}
+.ks-te-edit {
+  width: 100%; padding: 13px 15px; font-size: 19px; line-height: 1.7;
+  background: #fcfdfd; border: 1px solid var(--ks-line); border-radius: 12px;
+  color: var(--ks-ink); resize: vertical;
+}
+.ks-review input[type="text"], .ks-review input:not([type]) {
+  width: 100%; padding: 13px 15px; font-size: 16.5px;
+  background: #fcfdfd; border: 1px solid var(--ks-line); border-radius: 12px;
+}
+.ks-scenefoot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 14px;
+}
+.ks-check {
+  display: inline-flex; align-items: center; gap: 9px; font-size: 15.5px;
+  color: var(--ks-soft); cursor: pointer; min-height: 44px;
+}
+.ks-check input { width: 22px; height: 22px; accent-color: var(--ks-accent); }
+.ks-undo {
+  min-height: 44px; padding: 0 16px; border: 1px solid var(--ks-line);
+  border-radius: 11px; background: #fff; font-size: 14.5px; cursor: pointer;
+  color: var(--ks-soft);
+}
+.ks-lastchange {
+  margin: 10px 0 0; font-size: 14.5px; color: var(--ks-soft); font-style: italic;
+}
+.ks-moralbox {
+  margin-top: 24px; padding: 22px; background: var(--ks-card);
+  border: 1px solid var(--ks-line); border-radius: 16px;
+}
+.ks-moralbox h2 { margin: 0 0 12px; }
+.ks-rebuild { margin-bottom: 22px; }
+
+/* The commit bar stays reachable no matter how many scenes there are. */
+.ks-sticky-nav {
+  position: sticky; bottom: 0; z-index: 4;
+  margin-top: 26px; padding: 16px 18px;
+  background: rgba(243, 247, 246, .96); backdrop-filter: blur(8px);
+  border: 1px solid var(--ks-line); border-radius: 16px;
+}
+.ks-pending { flex: 1; color: var(--ks-soft); font-size: 16px; }
+@media (max-width: 640px) {
+  .ks-sticky-nav { flex-direction: column; align-items: stretch; }
+  .ks-pending { order: -1; text-align: center; }
+}
