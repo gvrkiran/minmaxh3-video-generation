@@ -69,8 +69,11 @@ export async function POST(request: Request) {
     }
     if (!story) throw new Error("Could not read the story.");
 
-    // Now that the title is known, give the story its real folder.
-    const dir = path.join(STORIES_ROOT, storySlug(String(story.title ?? "")));
+    // Now that the title is known, give the story its real folder. Prefer the English
+    // title: a Telugu one makes a correct but unpronounceable folder that neither of us can
+    // type at a shell. storySlug keeps Telugu intact as the fallback.
+    const dir = path.join(STORIES_ROOT, storySlug(
+      String(story.title_english || story.title || "")));
     if (await exists(dir)) await fs.rm(dir, { recursive: true, force: true });
     await fs.rename(scratch, dir);
     await fs.writeFile(path.join(dir, "story.json"), JSON.stringify(story, null, 2), "utf8");

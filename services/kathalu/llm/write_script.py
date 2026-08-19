@@ -26,6 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cast"))
 
 from story_cleanup import MODEL, call_openai  # noqa: E402
+from source_text import (  # noqa: E402
+    as_printed, english_moral, english_story, english_title,
+)
 import h3_prompt  # noqa: E402
 
 CHARS_PER_SEC = 12.27          # phase 0, measured
@@ -73,13 +76,24 @@ WRITING THE TELUGU
   narration carries the story without needing lip movement on screen.
 - Keep the printed story's meaning and its order. Do not add events or morals.
 
+IF THE BOOK WAS NOT PRINTED IN ENGLISH
+You may be given `story_as_printed` as well. `story_text` is then an English translation,
+and the two are the same story. Use each for what it is good for:
+- The ENGLISH is what you write `action` and `summary_for_her` from. The video model reads
+  only English.
+- The ORIGINAL is what you write `telugu_narration` from. When it is already Telugu, follow
+  its actual sentences and vocabulary closely -- that is a real Telugu storybook's voice,
+  and it is better than anything recovered from a translation. Condense to fit the
+  character budget, keep the register, and do not translate English back into Telugu.
+
 Also give each scene a `summary_for_her`: one short plain-English sentence describing what
 happens, for a review screen read by someone non-technical.
 
 THE MORAL
 Every one of these stories ends on a lesson, and the film ends on a card showing it.
 - If the printed story already carries a Moral, keep its meaning and wording; do not
-  reinvent it. Put the English in `moral_english` and the Telugu in `telugu_moral`.
+  reinvent it. Put the English in `moral_english` and the Telugu in `telugu_moral`. If the
+  moral was printed in Telugu, use its own words for `telugu_moral`.
 - If the printed story has NO Moral -- some pages carry none -- compose one. It must follow
   from the events of this story only, in one short sentence a child would understand. No
   proverbs bolted on, nothing the story does not actually show.
@@ -134,9 +148,12 @@ def write_script(story: dict, cast_records: list[dict]) -> dict:
                 "soft": SOFT_CHARS, "hard": HARD_CHARS,
                 "max_scenes": MAX_SCENES, "max_subjects": MAX_SUBJECTS_PER_SHOT}},
             {"role": "user", "content": json.dumps({
-                "title": story.get("title", ""),
-                "moral": story.get("moral", ""),
-                "story_text": story.get("story_text", ""),
+                "title": english_title(story),
+                "moral": english_moral(story),
+                "story_text": english_story(story),
+                # Only present when the book was not English. The shots are written from the
+                # English above; the narration is written from this.
+                "story_as_printed": as_printed(story),
                 "cast": cast_brief,
             }, ensure_ascii=False, indent=1)},
         ],

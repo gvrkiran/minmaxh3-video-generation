@@ -25,9 +25,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from story_cleanup import MODEL, call_openai, data_url
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+
+from source_text import english_moral, english_story, english_title  # noqa: E402
+from story_cleanup import MODEL, call_openai, data_url  # noqa: E402
 
 MAX_CAST = 6
 
@@ -140,9 +144,11 @@ def extract(story: dict, page_paths: list[Path]) -> dict:
     content: list[dict] = [{
         "type": "text",
         "text": json.dumps({
-            "title": story.get("title", ""),
-            "moral": story.get("moral", ""),
-            "story_text": story.get("story_text", ""),
+            # English, always: everything this stage writes -- appearance, portrait_pose --
+            # is a prompt for the image model, which only understands English.
+            "title": english_title(story),
+            "moral": english_moral(story),
+            "story_text": english_story(story),
         }, ensure_ascii=False, indent=1),
     }]
     for path in page_paths:

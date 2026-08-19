@@ -85,6 +85,17 @@ The OCR hints flag sides where lines merely REACH the edge of the photograph. Th
 suspicion, not a fact: text can sit close to a margin and still be complete. Judge from
 the image. If the words at that edge are whole, nothing was cut and nothing needs filling.
 
+IF THE PAGE IS NOT IN ENGLISH
+`story_text`, `title` and `moral` always hold the story in the language it was PRINTED in.
+Never translate those. If that language is not English, also fill `story_english` and
+`title_english` (and `moral_english`, if a moral was printed).
+
+The English is what the image and video models are given, so it has to carry everything
+they need to draw: who is in each event, what they do, what they look like. Translate the
+whole story faithfully and completely -- same events, same order, same characters, nothing
+summarised away and nothing added. Natural English prose at the same reading level, not a
+word-for-word gloss. If the story was printed in English, leave these three fields empty.
+
 `note_for_her` is read by a non-technical person. If you filled anything in, tell her in
 one or two plain sentences which page was cut off and that she should read those bits to
 check them. If you filled in nothing, leave it empty. No jargon."""
@@ -101,7 +112,18 @@ SCHEMA = {
                            "markers or brackets in this field.",
         },
         "moral": {"type": "string", "description": "The Moral, on one line, or empty."},
-        "language": {"type": "string"},
+        "language": {"type": "string",
+                     "description": "The language the page was printed in, e.g. English, "
+                                    "Telugu, Hindi."},
+        "story_english": {
+            "type": "string",
+            "description": "A faithful, complete English translation of story_text -- but "
+                           "EMPTY if the page was already in English.",
+        },
+        "title_english": {"type": "string",
+                          "description": "The title in English, or empty if already English."},
+        "moral_english": {"type": "string",
+                          "description": "The printed moral in English, or empty."},
         "photo_complete": {
             "type": "boolean",
             "description": "True if the photographs captured the whole story, so nothing "
@@ -148,7 +170,8 @@ SCHEMA = {
         },
         "note_for_her": {"type": "string"},
     },
-    "required": ["title", "story_text", "moral", "language", "photo_complete",
+    "required": ["title", "story_text", "moral", "language",
+                 "story_english", "title_english", "moral_english", "photo_complete",
                  "reconstructions", "pages", "note_for_her"],
 }
 

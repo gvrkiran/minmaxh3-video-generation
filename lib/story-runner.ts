@@ -103,10 +103,14 @@ export function storySlug(title: string): string {
   // Telugu title collapsed to nothing and the folder became story-<timestamp> -- unreadable,
   // and the whole point of these folders is that she can find her story in them. The source
   // pages are not always English: the first one she brought was a Telugu storybook.
+  //
+  // \p{M} is not optional. Telugu vowel signs and the virama are combining MARKS, not
+  // letters, so a class of \p{L} alone turns చెడ్డ into చ-డ-డ -- consonant skeletons
+  // with every vowel stripped, which is not a word in any language.
   const slug = title
     .toLowerCase()
     .normalize("NFC")
-    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
   return slug || `story-${Date.now()}`;
