@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 import base64
 import json
 import os
@@ -64,6 +65,13 @@ FIX THE OCR
   partly visible facing page ("The ja", "or tig"). Those belong to another page. Leave
   them out, and if a later page in this set covers that content properly, all is well.
 
+WORK ONLY FROM THE TRANSCRIPTION
+The verbatim transcription supplied with each page is your only source for what the story
+says. You have the photographs too, and you should consult them, but only to read the page
+better -- never to remember it. If you recognise the tale as one you know, that recognition
+is not evidence: a remembered version has different names, a different village and a
+different ending, and using it gives her a video of a story she never photographed.
+
 FILL WHAT THE CAMERA MISSED
 Where a margin was cut off, the printed words are simply not in the photograph. Complete
 them, so the story reads properly end to end. Rules for doing that honestly:
@@ -77,9 +85,13 @@ them, so the story reads properly end to end. Rules for doing that honestly:
   sentence, not writing a story.
 - Record EVERY span you supplied in `reconstructions`, with the readable words on either
   side of it, so a person can check each one.
-- If something much larger is absent -- a whole paragraph, or the end of the story --
-  reconstruct it if the narrative clearly implies it, mark it as low confidence, and say
-  so plainly in `note_for_her`.
+- If something much larger is absent -- a whole paragraph, or the end of the story -- do
+  NOT reconstruct it. Leave the gap, set `photo_complete` to false, and tell her plainly in
+  `note_for_her` which page is incomplete and that she should photograph it again. This rule
+  used to say to reconstruct large gaps where the narrative implied them. On a page where
+  only a fifth was legible that produced a fluent, complete, entirely different story,
+  reported as complete. A story with an acknowledged hole is recoverable; a confident
+  substitution is not.
 
 The OCR hints flag sides where lines merely REACH the edge of the photograph. That is a
 suspicion, not a fact: text can sit close to a margin and still be complete. Judge from
@@ -209,24 +221,29 @@ def call_openai(payload: dict, retries: int = 3) -> dict:
 
 
 def clean_story(page_paths: list[Path], ocr: dict, context: str = DEFAULT_CONTEXT) -> dict:
-    by_file = {p["file"]: p for p in ocr.get("pages", [])}
+    # Read the pages literally FIRST, and stop here if they cannot be read. Without this
+    # step an unreadable page does not fail -- it comes back as a different story that the
+    # model knew by heart, marked complete. See llm/transcribe.py.
+    from transcribe import GAP, transcribe
+    read = transcribe(page_paths, ocr)
 
-    content: list[dict] = [{
-        "type": "text",
-        "text": f"This story spans {len(page_paths)} page(s), given in reading order.",
-    }]
-    for i, path in enumerate(page_paths, 1):
-        rec = by_file.get(path.name, {})
-        hint = {
+    preamble = (
+        f"This story spans {len(page_paths)} page(s), given in reading order."
+        f" Printed in: {read['language'] or 'unknown'}."
+        f" Column layout: {read['columns']}."
+        " A verbatim transcription of each page follows. It is the ONLY source for the"
+        f" story. Anything marked {GAP} was not readable in the photograph."
+    )
+    content: list[dict] = [{"type": "text", "text": preamble}]
+    for i, (path, page) in enumerate(zip(page_paths, read["pages"]), 1):
+        header = f"--- PAGE {i} of {len(page_paths)} ---"
+        content.append({"type": "text", "text": header + chr(10) + json.dumps({
             "page": path.name,
-            "ocr_line_count": rec.get("line_count"),
-            "ocr_mean_confidence": rec.get("mean_confidence"),
-            "sides_where_lines_reach_the_photo_edge": rec.get("suspect_sides") or [],
-            "ocr_transcript": rec.get("raw_text", ""),
-        }
-        content.append({"type": "text",
-                        "text": f"--- PAGE {i} of {len(page_paths)} ---\n"
-                                + json.dumps(hint, ensure_ascii=False, indent=1)})
+            "columns": page.get("column_count"),
+            "fraction_legible": page.get("fraction_legible"),
+            "unreadable_spans": page.get("unreadable_spans"),
+            "verbatim_transcription": page.get("text", ""),
+        }, ensure_ascii=False, indent=1)})
         content.append({"type": "image_url",
                         "image_url": {"url": data_url(path), "detail": "high"}})
 
@@ -246,6 +263,13 @@ def clean_story(page_paths: list[Path], ocr: dict, context: str = DEFAULT_CONTEX
     out["_meta"] = {"model": got.get("model", MODEL),
                     "seconds": round(time.time() - started, 1),
                     "usage": got.get("usage", {})}
+    # Kept on the record so "why is this story wrong" stays answerable later.
+    out["_read"] = {
+        "fraction_legible": read["fraction_legible"],
+        "columns": read["columns"],
+        "language_seen": read["language"],
+        "per_page": {pg["page"]: pg["fraction_legible"] for pg in read["pages"]},
+    }
     return out
 
 
@@ -258,7 +282,17 @@ def main() -> None:
     a = ap.parse_args()
 
     ocr = json.loads(Path(a.ocr).read_text(encoding="utf-8"))
-    result = clean_story([Path(p) for p in a.pages], ocr, a.context)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from transcribe import PageTooHard
+    try:
+        result = clean_story([Path(p) for p in a.pages], ocr, a.context)
+    except PageTooHard as too_hard:
+        # A structured refusal, not a crash: the route turns this into plain advice about
+        # retaking the photograph.
+        payload = {"error": "photos_unreadable", "message": str(too_hard),
+                   **too_hard.detail}
+        print("PAGES_UNREADABLE " + json.dumps(payload, ensure_ascii=False), flush=True)
+        raise SystemExit(3)
     out_path = Path(a.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -269,6 +303,9 @@ def main() -> None:
     print(f"title    : {result['title']}")
     print(f"moral    : {result['moral']}")
     print(f"photo captured everything: {result['photo_complete']}")
+    r = result.get("_read", {})
+    print(f"legible: {r.get('fraction_legible')}  columns: {r.get('columns')}  "
+          f"language: {r.get('language_seen')}")
     for pg in result["pages"]:
         print(f"  {pg['page']:22s} cut_off={str(pg['was_cut_off']):5s} "
               f"ocr_lines_recovered={pg['lines_recovered']}")

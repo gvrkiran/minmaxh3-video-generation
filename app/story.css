@@ -241,6 +241,16 @@
   color: #6b4a2a;
 }
 
+/* The things she can actually go and do about it. Deliberately outside the collapsed
+   technical section: this is the part that gets her unstuck. */
+.ks-error-advice {
+  margin: 0; padding: 10px 13px 10px 32px; font-size: 15px; line-height: 1.55;
+  background: #fff; border-left: 3px solid var(--ks-accent); border-radius: 0 8px 8px 0;
+  color: #6b4a2a;
+}
+.ks-error-advice li { margin: 0 0 5px; }
+.ks-error-advice li:last-child { margin-bottom: 0; }
+
 /* ---------------------------------------------------------------- the editor
    A scene she has touched is marked, the count of pending changes is always visible, and
    the one button that commits them sticks to the bottom -- so on a long story she never

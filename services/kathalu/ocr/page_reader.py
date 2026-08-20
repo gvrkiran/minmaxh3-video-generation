@@ -170,6 +170,61 @@ def collect(bgr: np.ndarray) -> list[dict]:
     return kept
 
 
+def columns_detected(ordered: list[dict], page_width: float) -> int:
+    """How many text columns the ordering found. Reported so the reader can be told."""
+    if len(ordered) < 6:
+        return 1
+    centres = [(ln["bbox"][0] + ln["bbox"][2]) / 2.0 for ln in ordered]
+    lo, hi = min(centres), max(centres)
+    return 2 if (hi - lo) > 0.35 * page_width else 1
+
+
+def reading_order(lines: list[dict], page_width: float) -> list[dict]:
+    """Order lines the way a person reads them, columns included.
+
+    The first version grouped lines into rows and read each row left to right. On a
+    single-column page that is right. On the TWO-COLUMN pages these books use it is exactly
+    wrong: it alternates left line, right line, left line, interleaving two separate
+    narratives into nonsense. Verified on a synthetic two-column page, where it returned
+    Left one, Right one, Left two, Right two.
+
+    So: detect a column split first, and read each column out in full before starting the
+    next. Detection is a gap in the horizontal distribution of line centres -- prose columns
+    leave a real gutter, and a single column leaves none.
+    """
+    if not lines:
+        return []
+
+    centres = sorted((ln["bbox"][0] + ln["bbox"][2]) / 2.0 for ln in lines)
+    split = None
+    if len(centres) >= 6:
+        # The widest gap between consecutive centres, if it is a gutter-sized fraction of
+        # the page and has substantial text on both sides, is a column boundary.
+        gaps = [(centres[i + 1] - centres[i], i) for i in range(len(centres) - 1)]
+        gap, i = max(gaps)
+        left_n, right_n = i + 1, len(centres) - i - 1
+        if (gap > 0.18 * page_width
+                and min(left_n, right_n) >= max(2, 0.2 * len(centres))):
+            split = (centres[i] + centres[i + 1]) / 2.0
+
+    def rows_of(group: list[dict]) -> list[dict]:
+        group.sort(key=lambda ln: ln["bbox"][1])
+        rows: list[list[dict]] = []
+        for ln in group:
+            lh = ln["bbox"][3] - ln["bbox"][1]
+            if rows and ln["bbox"][1] < rows[-1][-1]["bbox"][3] - 0.5 * lh:
+                rows[-1].append(ln)
+            else:
+                rows.append([ln])
+        return [ln for row in rows for ln in sorted(row, key=lambda l: l["bbox"][0])]
+
+    if split is None:
+        return rows_of(list(lines))
+    left = [ln for ln in lines if (ln["bbox"][0] + ln["bbox"][2]) / 2.0 <= split]
+    right = [ln for ln in lines if (ln["bbox"][0] + ln["bbox"][2]) / 2.0 > split]
+    return rows_of(left) + rows_of(right)
+
+
 def read_page(path: Path, debug_dir: Path | None = None) -> dict:
     bgr = cv2.imread(str(path))
     if bgr is None:
@@ -194,16 +249,7 @@ def read_page(path: Path, debug_dir: Path | None = None) -> dict:
         ln["at_photo_edge"] = at
         ln["bbox"] = [round(v, 1) for v in ln["bbox"]]
 
-    # reading order: group into rows by vertical overlap, then left to right
-    lines.sort(key=lambda ln: ln["bbox"][1])
-    rows: list[list[dict]] = []
-    for ln in lines:
-        lh = ln["bbox"][3] - ln["bbox"][1]
-        if rows and ln["bbox"][1] < rows[-1][-1]["bbox"][3] - 0.5 * lh:
-            rows[-1].append(ln)
-        else:
-            rows.append([ln])
-    ordered = [ln for row in rows for ln in sorted(row, key=lambda l: l["bbox"][0])]
+    ordered = reading_order(lines, w)
 
     # One line near the margin is ordinary. Many lines terminating against the same
     # boundary is what a cut-off page looks like.

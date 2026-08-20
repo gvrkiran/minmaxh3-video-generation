@@ -53,6 +53,40 @@ export async function POST(request: Request) {
       const cleanOut = path.join(scratch, "story.json");
       const clean = await runPython(MODULE_PATHS.cleanup,
         ["--ocr", ocrOut, "--pages", ...saved, "--out", cleanOut]);
+      // A refusal, not a failure. The cleanup stage measures how much of the page it could
+      // actually read and stops rather than inventing the rest -- which is what produced a
+      // complete, fluent, entirely different story from four unreadable photographs.
+      const refused = clean.stdout.split(/\r?\n/)
+        .find((l) => l.startsWith("PAGES_UNREADABLE "));
+      if (refused) {
+        const d = JSON.parse(refused.slice("PAGES_UNREADABLE ".length)) as {
+          readable_fraction: number; what_is_wrong: string; pages_too_hard: string[];
+          columns: number; language: string;
+        };
+        const pct = Math.round((d.readable_fraction ?? 0) * 100);
+        const bad = d.pages_too_hard?.length ?? 0;
+        const which = bad === 1 ? "This photo is"
+          : bad >= photos.length ? `All ${bad} photos are`
+          : `${bad} of the photos are`;
+        return Response.json({
+          error: `${which} too hard to read. Only about ${pct}% of the words came out, `
+               + "so the story would have been mostly guesswork.",
+          step: "Read the pages",
+          hint: d.what_is_wrong,
+          advice: [
+            "Send the original photo from the camera, not a screenshot of it -- a screenshot "
+            + "throws away most of the detail.",
+            "Hold the phone flat above the page, not at an angle, with the whole page in view.",
+            d.columns >= 2
+              ? "This page has two columns of text. Photograph one page at a time so the "
+                + "words are as large as possible."
+              : "Fill the frame with the page so the words are as large as possible.",
+            "Good light, no shadow of your hand or phone falling across the words.",
+          ],
+          pagesTooHard: d.pages_too_hard ?? [],
+          readablePercent: pct,
+        }, { status: 422 });
+      }
       if (clean.code !== 0) throw new Error(`Could not make sense of the pages. ${clean.stderr.slice(-400)}`);
       story = await readJson(cleanOut);
     } else {

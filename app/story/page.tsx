@@ -20,6 +20,7 @@ type Failure = {
   detail: string;       // for whoever fixes it
   ref: string;          // she reads this out; the server logged the same code
   hint?: string;        // what to do about it
+  advice?: string[];    // things she can actually go and do, one per line
   seconds: number;
 };
 
@@ -236,6 +237,7 @@ export default function StoryStudio() {
           kind: "server",
           message: payload.error || `The studio could not finish "${label}".`,
           hint: payload.hint,
+          advice: Array.isArray(payload.advice) ? payload.advice as string[] : undefined,
           detail: [payload.detail, `HTTP ${response.status} from ${url}`]
             .filter(Boolean).join(" | "),
           ref: payload.ref || "",
@@ -406,6 +408,11 @@ export default function StoryStudio() {
             <strong>{t.somethingWrong}</strong>
             <p className="ks-error-msg">{failure.message}</p>
             {failure.hint && <p className="ks-error-hint">{failure.hint}</p>}
+            {failure.advice && failure.advice.length > 0 && (
+              <ul className="ks-error-advice">
+                {failure.advice.map((line, n) => <li key={n}>{line}</li>)}
+              </ul>
+            )}
             <details>
               <summary>{t.tellThem}</summary>
               <pre className="ks-error-detail">{[
