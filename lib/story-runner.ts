@@ -2,7 +2,7 @@
  * Bridge from the studio app to the Kathalu pipeline modules on H:.
  *
  * The pipeline is Python because that is where the OCR model, the torch TTS model and
- * ffmpeg live, and because those stacks pin against each other -- rapidocr wants numpy 2.x
+ * ffmpeg live, and because those stacks pin against each other -- torch wants numpy 2.x
  * while IndicF5's f5-tts pins numpy<=1.26.4, so each gets its own interpreter. This module
  * knows which interpreter runs what, and nothing else does.
  *
@@ -20,7 +20,7 @@ export const STUDIO_ROOT = "H:/KathaluStudio";
 export const STORIES_ROOT = `${STUDIO_ROOT}/stories`;
 export const LIBRARY_ROOT = `${STUDIO_ROOT}/characters`;
 
-/** CPU tooling venv: OCR, OpenAI calls, ComfyUI orchestration, ffmpeg. */
+/** CPU tooling venv: OpenAI calls, ComfyUI orchestration, ffmpeg, Pillow. */
 const TOOLS_PY = `${STUDIO_ROOT}/ocr-venv/Scripts/python.exe`;
 
 /**
@@ -35,7 +35,6 @@ const REPO = process.cwd().split(String.fromCharCode(92)).join("/");
 const KATHALU = `${REPO}/services/kathalu`;
 
 export const MODULE_PATHS = {
-  ocr: `${KATHALU}/ocr/page_reader.py`,
   cleanup: `${KATHALU}/llm/story_cleanup.py`,
   cast: `${KATHALU}/llm/character_extract.py`,
   script: `${KATHALU}/llm/write_script.py`,

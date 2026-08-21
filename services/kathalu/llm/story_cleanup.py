@@ -1,20 +1,31 @@
-"""Kathalu Studio -- turn OCR output plus the page photos into a complete story.
+"""Kathalu Studio -- turn the transcribed pages into one clean, complete story.
 
-The local reader (page_reader.py) gets most of the text but not all: on curved pages a
-few steeply-tilted lines go undetected, spacing and quote marks get mangled, and where
-the photograph cut off a margin the printed words were never captured at all.
+The pages themselves are read by llm/transcribe.py, which asks the model to copy out only
+what is visibly printed. There used to be a local OCR pass in front of this (RapidOCR, in
+its own venv) and it is gone, because it could not do the job: the only recogniser bundled
+with it is a Chinese/English model whose vocabulary holds no Indic characters at all, so on
+a Telugu page it returned Latin letters that merely resembled the glyph shapes. Probed with
+a flawless 72px render it returns English exactly and Telugu not at all. It also read
+two-column pages row by row, interleaving the columns into nonsense. Feeding that to the
+model was worse than feeding it nothing.
 
-This step repairs all of that. It is told what kind of text it is looking at -- a short
-Indian moral story for children -- and it is allowed to reconstruct short spans the
-camera missed, so she is never stopped dead by a demand to re-photograph a page.
+So this step no longer repairs a bad transcript. It takes a good one and makes a story of
+it: joins the pages, fixes the layout artefacts of print, separates the moral from the body,
+and completes the short spans that the camera clipped off a margin.
 
-The safeguard is disclosure, not refusal. Every reconstructed span is recorded in
-`reconstructions` with the words that surround it, so the review screen can show her
-exactly what was filled in and let her correct it before anything is animated. Silent
-invention is the thing to avoid; visible, checkable completion is useful.
+Two safeguards, and they do different jobs:
+
+  * Disclosure, for small gaps. Every span filled in is recorded in `reconstructions` with
+    the words surrounding it, so the review screen can show her exactly what was supplied
+    and let her correct it before anything is animated.
+
+  * Refusal, for large ones. A page that cannot be read is not completed at any confidence
+    -- transcribe.py stops the whole ingest first. That rule exists because the licence to
+    reconstruct large gaps once turned four unreadable photographs into a fluent, complete,
+    entirely different story, reported as complete.
 
 Usage:
-  OPENAI_API_KEY=... python story_cleanup.py --ocr ocr-result.json \\
+  OPENAI_API_KEY=... python story_cleanup.py \
       --pages story4_1.jpeg story4_2.jpeg --out story.json
 """
 from __future__ import annotations
@@ -84,7 +95,11 @@ them, so the story reads properly end to end. Rules for doing that honestly:
 - Invent no new events, characters, dialogue or morals. You are closing gaps in a
   sentence, not writing a story.
 - Record EVERY span you supplied in `reconstructions`, with the readable words on either
-  side of it, so a person can check each one.
+  side of it, so a person can check each one. This is not optional bookkeeping -- it is the
+  only way she ever finds out. `reconstructions` and `note_for_her` must agree: if the note
+  says you filled anything in, the spans must be listed, and if you listed no spans the note
+  must not claim you filled anything. Saying you supplied words without saying WHICH words
+  leaves her with a story she has been told to check and no way to check it.
 - If something much larger is absent -- a whole paragraph, or the end of the story -- do
   NOT reconstruct it. Leave the gap, set `photo_complete` to false, and tell her plainly in
   `note_for_her` which page is incomplete and that she should photograph it again. This rule
@@ -220,12 +235,12 @@ def call_openai(payload: dict, retries: int = 3) -> dict:
     raise SystemExit(f"OpenAI failed: {last}")
 
 
-def clean_story(page_paths: list[Path], ocr: dict, context: str = DEFAULT_CONTEXT) -> dict:
+def clean_story(page_paths: list[Path], context: str = DEFAULT_CONTEXT) -> dict:
     # Read the pages literally FIRST, and stop here if they cannot be read. Without this
     # step an unreadable page does not fail -- it comes back as a different story that the
     # model knew by heart, marked complete. See llm/transcribe.py.
     from transcribe import GAP, transcribe
-    read = transcribe(page_paths, ocr)
+    read = transcribe(page_paths)
 
     preamble = (
         f"This story spans {len(page_paths)} page(s), given in reading order."
@@ -263,6 +278,15 @@ def clean_story(page_paths: list[Path], ocr: dict, context: str = DEFAULT_CONTEX
     out["_meta"] = {"model": got.get("model", MODEL),
                     "seconds": round(time.time() - started, 1),
                     "usage": got.get("usage", {})}
+    # If it claims a fill in the note but lists no spans, she has been told to check
+    # something she cannot see. Surface that rather than letting it pass quietly.
+    claims_fill = any(w in (out.get("note_for_her") or "").lower()
+                      for w in ("filled", "fill in", "filled in", "supplied", "added"))
+    if claims_fill and not out.get("reconstructions"):
+        out["disclosure_incomplete"] = True
+        print("WARNING: note_for_her claims words were filled in but reconstructions is "
+              "empty -- she cannot check what she is being asked to check", flush=True)
+
     # Kept on the record so "why is this story wrong" stays answerable later.
     out["_read"] = {
         "fraction_legible": read["fraction_legible"],
@@ -275,17 +299,15 @@ def clean_story(page_paths: list[Path], ocr: dict, context: str = DEFAULT_CONTEX
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ocr", required=True)
     ap.add_argument("--pages", nargs="+", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--context", default=DEFAULT_CONTEXT)
     a = ap.parse_args()
 
-    ocr = json.loads(Path(a.ocr).read_text(encoding="utf-8"))
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from transcribe import PageTooHard
     try:
-        result = clean_story([Path(p) for p in a.pages], ocr, a.context)
+        result = clean_story([Path(p) for p in a.pages], a.context)
     except PageTooHard as too_hard:
         # A structured refusal, not a crash: the route turns this into plain advice about
         # retaking the photograph.

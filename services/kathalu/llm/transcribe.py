@@ -103,6 +103,23 @@ SCHEMA = {
 }
 
 
+def photo_size(path: Path) -> list[int] | None:
+    """Pixel dimensions, for the message she gets when a photo is too hard to read.
+
+    Deliberately NOT used as a gate. Total pixels do not predict legibility: her Telugu page
+    that reads perfectly is 0.52 MP, and the four screenshots that read as nothing are 0.59
+    MP -- larger. What matters is pixels per character, which depends on how much of the
+    frame the text fills and how dense the page is, and there is no way to know that without
+    reading it. So this is for telling her the size, not for judging it.
+    """
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            return [im.size[0], im.size[1]]
+    except Exception:
+        return None
+
+
 class PageTooHard(Exception):
     """The photographs cannot be read well enough to build a story from them."""
 
@@ -111,24 +128,9 @@ class PageTooHard(Exception):
         self.detail = detail
 
 
-def transcribe_page(path: Path, ocr: dict, page_no: int, total: int) -> dict:
+def transcribe_page(path: Path, page_no: int, total: int) -> dict:
     """One page, read as literally as the model can manage."""
-    hint = {
-        "page": path.name,
-        # Said plainly, because the transcript below is actively misleading otherwise. The
-        # engine is a Chinese/English model with no Indic characters in its vocabulary at
-        # all: on a Telugu page it returns Latin letters that merely resemble the glyph
-        # shapes, and it interleaves the columns of a two-column page.
-        "ocr_engine_note": "The OCR engine can only read Latin and Chinese script, and it "
-                           "cannot represent any Indian script. If this page is printed in "
-                           "an Indian script, its transcript below is meaningless noise -- "
-                           "ignore it completely and read the image yourself. It also "
-                           "interleaves columns, so its line order is unreliable.",
-        "ocr_transcript": ocr.get("raw_text", ""),
-        "ocr_mean_confidence": ocr.get("mean_confidence"),
-        "sides_where_lines_reach_the_photo_edge": ocr.get("suspect_sides") or [],
-        "photo_size_pixels": ocr.get("photo_size"),
-    }
+    hint = {"page": path.name, "photo_size_pixels": photo_size(path)}
     got = call_openai({
         "model": MODEL,
         "reasoning_effort": EFFORT,
@@ -153,11 +155,10 @@ def transcribe_page(path: Path, ocr: dict, page_no: int, total: int) -> dict:
     return out
 
 
-def transcribe(page_paths: list[Path], ocr: dict) -> dict:
+def transcribe(page_paths: list[Path]) -> dict:
     """Transcribe every page, and refuse if too little of the story is legible."""
-    by_file = {p["file"]: p for p in ocr.get("pages", [])}
     started = time.time()
-    pages = [transcribe_page(p, by_file.get(p.name, {}), i, len(page_paths))
+    pages = [transcribe_page(p, i, len(page_paths))
              for i, p in enumerate(page_paths, 1)]
 
     # Weight by how much text each page holds, so one short legible page cannot carry three
@@ -201,8 +202,7 @@ def transcribe(page_paths: list[Path], ocr: dict) -> dict:
                 "what_is_wrong": problems[0] if problems else
                                  "The printed words are too small to resolve.",
                 "all_problems": problems,
-                "photo_sizes": {p["file"]: p.get("photo_size")
-                                for p in ocr.get("pages", [])},
+                "photo_sizes": {p.name: photo_size(p) for p in page_paths},
                 "columns": result["columns"],
                 "language": result["language"],
                 "worst_page": worst["page"],

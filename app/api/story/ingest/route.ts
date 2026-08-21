@@ -46,13 +46,12 @@ export async function POST(request: Request) {
         await fs.writeFile(target, Buffer.from(await photo.arrayBuffer()));
         saved.push(target);
       }
-      const ocrOut = path.join(scratch, "ocr.json");
-      const ocr = await runPython(MODULE_PATHS.ocr, [...saved, "--out", ocrOut]);
-      if (ocr.code !== 0) throw new Error(`Could not read the pages. ${ocr.stderr.slice(-400)}`);
-
+      // The model reads the pages itself. There used to be a local OCR pass here; it could
+      // not represent Telugu at all and it scrambled two-column pages, so its transcript
+      // was actively misleading the reader that followed it.
       const cleanOut = path.join(scratch, "story.json");
       const clean = await runPython(MODULE_PATHS.cleanup,
-        ["--ocr", ocrOut, "--pages", ...saved, "--out", cleanOut]);
+        ["--pages", ...saved, "--out", cleanOut]);
       // A refusal, not a failure. The cleanup stage measures how much of the page it could
       // actually read and stops rather than inventing the rest -- which is what produced a
       // complete, fluent, entirely different story from four unreadable photographs.
