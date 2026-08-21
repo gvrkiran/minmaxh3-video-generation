@@ -17,7 +17,17 @@ $logRoot    = Join-Path $studioRoot "work"
 $logFile    = Join-Path $logRoot "watchdog.log"
 $stateFile  = Join-Path $logRoot "health.json"
 
+# How long to wait for models to load before recording whether the heal worked. Kept well
+# inside the five-minute schedule so two runs cannot overlap.
+$confirmSeconds = 90
+
 New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
+
+$services = @(
+  @{ name = "comfyui"; port = 8188; what = "the picture and video model" }
+  @{ name = "voice";   port = 8190; what = "the Telugu voice" }
+  @{ name = "web";     port = 3000; what = "the website she uses" }
+)
 
 function Note([string]$text) {
   $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $text
@@ -28,66 +38,75 @@ function PortUp([int]$port) {
   [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
 }
 
-$services = @(
-  @{ name = "comfyui"; port = 8188; what = "the picture and video model" }
-  @{ name = "voice";   port = 8190; what = "the Telugu voice" }
-  @{ name = "web";     port = 3000; what = "the website she uses" }
-)
+# A snapshot the website can read, so "is it working" is answerable without a terminal.
+#
+# Called before healing as well as after. The first version wrote it only at the very end,
+# after the wait for models to load -- so for those minutes the health page reported the
+# watchdog as stale, which is exactly when somebody is most likely to be looking at it and
+# least helped by a wrong answer.
+function WriteSnapshot {
+  $renders = @()
+  foreach ($lock in Get-ChildItem "H:\KathaluStudio\stories\*\pipeline.lock" -ErrorAction SilentlyContinue) {
+    try {
+      $held = Get-Content -LiteralPath $lock.FullName -Raw | ConvertFrom-Json
+      $renders += [ordered]@{
+        story = $lock.Directory.Name
+        pid   = $held.pid
+        alive = [bool](Get-Process -Id $held.pid -ErrorAction SilentlyContinue)
+      }
+    } catch { }
+  }
+
+  $health = [ordered]@{
+    checkedAt = (Get-Date).ToString("o")
+    services  = [ordered]@{}
+    renders   = $renders
+  }
+  foreach ($s in $services) {
+    $health.services[$s.name] = [ordered]@{
+      port = $s.port; up = (PortUp $s.port); what = $s.what
+    }
+  }
+  $health | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding utf8
+}
 
 $before = @{}
 foreach ($s in $services) { $before[$s.name] = PortUp $s.port }
 $down = @($services | Where-Object { -not $before[$_.name] })
 
+WriteSnapshot        # first, so the health page is fresh even if the heal below takes minutes
+
 if ($down.Count -gt 0) {
   Note ("DOWN: " + (($down | ForEach-Object { "$($_.name)($($_.port))" }) -join ", ") + " -- starting")
-  try {
-    # Idempotent: it only starts what is not already listening.
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $studioRoot "scripts\start-h3-studio.ps1") *>&1 |
-      ForEach-Object { Note "  start: $_" }
-  } catch {
-    Note "  start FAILED: $($_.Exception.Message)"
-  }
+  # Fire and forget. The first version piped the starter through ForEach-Object to log its
+  # output, and that pipeline blocked for over eight minutes -- it waits on handles the
+  # started services inherit, not just on the starter exiting. The watchdog does not need
+  # its output: it has its own port checks, and the starter already writes its own logs.
+  $starter = Join-Path $studioRoot 'scripts\start-h3-studio.ps1'
+  Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden `
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $starter) `
+    -RedirectStandardOutput (Join-Path $logRoot 'watchdog-start.out.log') `
+    -RedirectStandardError  (Join-Path $logRoot 'watchdog-start.err.log')
 
-  # Models take a while to load, so give them time before judging the result.
-  $deadline = (Get-Date).AddSeconds(240)
+  $deadline = (Get-Date).AddSeconds($confirmSeconds)
   while ((Get-Date) -lt $deadline) {
     if (-not ($services | Where-Object { -not (PortUp $_.port) })) { break }
     Start-Sleep -Seconds 5
   }
   foreach ($s in $services) {
     if (-not $before[$s.name]) {
-      Note ("  {0}: {1}" -f $s.name, $(if (PortUp $s.port) { "back up" } else { "STILL DOWN" }))
+      # "still starting" rather than "failed": ComfyUI can take longer than the confirm
+      # window to load its models, and the next pass five minutes from now will say for sure.
+      Note ("  {0}: {1}" -f $s.name, $(if (PortUp $s.port) { "back up" } else { "still starting" }))
     }
   }
+  WriteSnapshot
 }
 
-# A snapshot the website can read, so "is it working" is answerable without a terminal.
-$renders = @()
-foreach ($lock in Get-ChildItem "H:\KathaluStudio\stories\*\pipeline.lock" -ErrorAction SilentlyContinue) {
-  try {
-    $held = Get-Content -LiteralPath $lock.FullName -Raw | ConvertFrom-Json
-    $alive = [bool](Get-Process -Id $held.pid -ErrorAction SilentlyContinue)
-    $renders += [ordered]@{ story = $lock.Directory.Name; pid = $held.pid; alive = $alive }
-  } catch { }
-}
-
-$health = [ordered]@{
-  checkedAt = (Get-Date).ToString("o")
-  services  = [ordered]@{}
-  renders   = $renders
-}
-foreach ($s in $services) {
-  $health.services[$s.name] = [ordered]@{
-    port = $s.port; up = (PortUp $s.port); what = $s.what
-  }
-}
-$health | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding utf8
-
-# One heartbeat line an hour is enough to prove the watchdog itself is alive, without the log
-# growing without bound.
+# One heartbeat line an hour proves the watchdog itself is alive without the log growing
+# without bound.
 if ($down.Count -eq 0 -and (Get-Date).Minute -lt 5) { Note "all up" }
 
-# Keep the log from growing forever.
 if ((Test-Path $logFile) -and (Get-Item $logFile).Length -gt 2MB) {
   $keep = Get-Content -LiteralPath $logFile -Tail 2000
   Set-Content -LiteralPath $logFile -Value $keep -Encoding utf8
