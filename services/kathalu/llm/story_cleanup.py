@@ -42,6 +42,16 @@ from pathlib import Path
 
 API = "https://api.openai.com/v1/chat/completions"
 MODEL = os.environ.get("KATHALU_TEXT_MODEL", "gpt-5.5")
+# Low, measured on her real Telugu page. This stage no longer reads the photograph -- the
+# page arrives already transcribed -- so what is left is joining pages, tidying print
+# artefacts and translating, and it does not need deliberation:
+#
+#   default effort  279s for the cleanup call, 6,655 of its 7,807 output tokens reasoning
+#   low effort      whole ingest 111s instead of 311s
+#   medium effort   452s, which EXCEEDED the 420s HTTP timeout and failed outright
+#
+# So the default was both the slowest and the closest to timing out.
+CLEAN_EFFORT = os.environ.get("KATHALU_CLEAN_EFFORT", "low").strip()
 
 DEFAULT_CONTEXT = (
     "A short moral story for children from India -- the Panchatantra, Jataka and Indian "
@@ -219,7 +229,7 @@ def call_openai(payload: dict, retries: int = 3) -> dict:
             headers={"content-type": "application/json", "authorization": f"Bearer {key}"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=420) as r:
+            with urllib.request.urlopen(req, timeout=600) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
             last = e.read().decode("utf-8", "replace")[:900]
@@ -263,8 +273,10 @@ def clean_story(page_paths: list[Path], context: str = DEFAULT_CONTEXT) -> dict:
                         "image_url": {"url": data_url(path), "detail": "high"}})
 
     started = time.time()
+    payload_extra = {"reasoning_effort": CLEAN_EFFORT} if CLEAN_EFFORT else {}
     got = call_openai({
         "model": MODEL,
+        **payload_extra,
         "messages": [
             {"role": "system", "content": INSTRUCTIONS.format(context=context)},
             {"role": "user", "content": content},
@@ -289,6 +301,7 @@ def clean_story(page_paths: list[Path], context: str = DEFAULT_CONTEXT) -> dict:
 
     # Kept on the record so "why is this story wrong" stays answerable later.
     out["_read"] = {
+        "seconds": read["seconds"],
         "fraction_legible": read["fraction_legible"],
         "columns": read["columns"],
         "language_seen": read["language"],

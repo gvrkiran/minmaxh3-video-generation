@@ -29,10 +29,29 @@ from pathlib import Path
 
 from story_cleanup import MODEL, call_openai, data_url
 
-# Below this, do not attempt a story. Chosen from measurement rather than taste: the Telugu
-# page that came out as a different story sat at 0.22, and the single-column page that came
-# through correctly sat near 1.0. Anything under three-quarters legible means the gaps are
-# large enough to be filled with invention rather than with the sentence's own obvious ending.
+# The gate is decided by COUNTING, not by asking the model how well it did.
+#
+# It used to gate on `fraction_legible`, the model's own estimate, and that estimate is far
+# too noisy to make a decision with. Her real story page -- the one that went through this
+# morning and produced a good Telugu story -- scored 0.82 on the run that accepted it and
+# 0.62 on four consecutive runs afterwards, against a 0.75 threshold. So the same photograph
+# accepted or refused depending on the hour. A page that worked yesterday must not be refused
+# today.
+#
+# What is stable is what came back: how much real text, against how many spans it marked
+# unreadable. Measured across the pages we know the answer for:
+#
+#   the-old-bull  (good)  1,321 real chars,  2 gaps  -> recovered 0.96
+#   bad-company   (good)  1,684 real chars,  3 gaps  -> recovered 0.96
+#   story 8 p1    (bad)      26 real chars, many     -> recovered 0.09
+#
+# That is a ten-fold separation from a countable quantity, against 0.62-vs-0.82 from a
+# judgement. Decide on the count; keep the estimate on the record as a note.
+CHARS_PER_GAP = 25          # what one [UNREADABLE] marker stands in for, roughly a phrase
+MIN_RECOVERED = 0.60        # share of the page that came back as real text
+MIN_REAL_CHARS = 200        # a story page always carries more than this; a title page may not
+
+# Retained only to report, and for older records. Not a gate any more.
 MIN_LEGIBLE = 0.75
 
 # Transcribing is copying, not thinking, and on this task more reasoning makes the model
@@ -162,7 +181,7 @@ def transcribe(page_paths: list[Path]) -> dict:
              for i, p in enumerate(page_paths, 1)]
 
     # Weight by how much text each page holds, so one short legible page cannot carry three
-    # unreadable ones.
+    # unreadable ones. Reported, not decided on.
     weights = [max(1, len(p["text"])) for p in pages]
     legible = sum(p["fraction_legible"] * w for p, w in zip(pages, weights)) / sum(weights)
 
@@ -172,15 +191,24 @@ def transcribe(page_paths: list[Path]) -> dict:
     # later cross-check needs a number that is not the model grading its own homework.
     for pg in pages:
         gaps = pg.get("unreadable_spans") or 0
-        real = len(pg.get("text", "").replace(GAP, ""))
-        pg["chars_per_gap"] = round(real / gaps, 1) if gaps else None
+        real = len(pg.get("text", "").replace(GAP, "").strip())
         pg["real_chars"] = real
+        pg["chars_per_gap"] = round(real / gaps, 1) if gaps else None
 
-    worst = min(pages, key=lambda p: p["fraction_legible"])
+    # Decided across the whole story, not per page: a story can legitimately include a title
+    # page carrying almost no text, and that must not sink the pages that do carry it.
+    total_real = sum(pg["real_chars"] for pg in pages)
+    total_gaps = sum(pg.get("unreadable_spans") or 0 for pg in pages)
+    recovered = total_real / (total_real + total_gaps * CHARS_PER_GAP) if total_real else 0.0
+
+    worst = min(pages, key=lambda p: p["real_chars"])
     result = {
         "pages": pages,
         "language": next((p["language"] for p in pages if p.get("language")), ""),
         "title": next((p["title"] for p in pages if p.get("title")), ""),
+        "recovered": round(recovered, 3),
+        "real_chars": total_real,
+        "unreadable_spans": total_gaps,
         "fraction_legible": round(legible, 3),
         "columns": max((p.get("column_count") or 1) for p in pages),
         "seconds": round(time.time() - started, 1),
@@ -191,14 +219,17 @@ def transcribe(page_paths: list[Path]) -> dict:
         },
     }
 
-    if legible < MIN_LEGIBLE:
+    if recovered < MIN_RECOVERED or total_real < MIN_REAL_CHARS:
         problems = [p["problem"].strip() for p in pages if p.get("problem", "").strip()]
         raise PageTooHard(
             "These photographs cannot be read well enough to make a story from them.",
             {
-                "readable_fraction": round(legible, 2),
+                "readable_fraction": round(recovered, 2),
+                "real_chars": total_real,
+                "unreadable_spans": total_gaps,
+                "model_estimate": round(legible, 2),
                 "pages_too_hard": [p["page"] for p in pages
-                                   if p["fraction_legible"] < MIN_LEGIBLE],
+                                   if p["real_chars"] < MIN_REAL_CHARS],
                 "what_is_wrong": problems[0] if problems else
                                  "The printed words are too small to resolve.",
                 "all_problems": problems,

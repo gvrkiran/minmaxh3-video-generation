@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "llm"))
 import comfy_client as comfy  # noqa: E402
+from gpu_lock import GpuLock  # noqa: E402
 
 LIBRARY = Path(r"H:\KathaluStudio\characters")
 UNET_GGUF = "qwen-image-edit-2511-Q6_K.gguf"
@@ -318,18 +319,31 @@ def main() -> None:
             known = ", ".join(f'{c["name"]!r}/{character_key(c)}' for c in cast["characters"])
             raise SystemExit(f"no character matching {a.only!r} in {a.cast}. known: {known}")
 
-    print(f"\ndrawing {len(wanted)} character(s):")
+    # Work out first whether anything actually needs the GPU. A cast that is entirely
+    # reused from the library draws nothing, and must not queue behind a 40-minute render
+    # for no reason.
+    todo = [c for c in wanted
+            if not (a.reuse and character_key(c) in library and not a.note)]
     for character in wanted:
         key = character_key(character)
         if a.reuse and key in library and not a.note:
             rec = library[key]
             print(f"  {character['name']:<24s} reused from library ({rec['filename']})")
-            continue
-        rec = make_portrait(character, cast["style_paragraph"], style_ref, a.note,
-                            reseed=a.reseed)
-        print(f"      -> {rec['filename']}  seed={rec['seed']}  "
-              f"subject_area={rec['quality'].get('subject_area')}")
 
+    if todo:
+        # One GPU, one job. The portraits go through ComfyUI, which queues graphs serially,
+        # but the render stage loads its voice model outside ComfyUI altogether -- so
+        # without this a story drawing portraits can land on the card at the same moment
+        # another is narrating, and 24 GB does not hold both.
+        story_name = cast.get("title") or Path(a.cast).parent.name
+        with GpuLock("drawing the characters", story=story_name):
+            print()
+            print(f"drawing {len(todo)} character(s):")
+            for character in todo:
+                rec = make_portrait(character, cast["style_paragraph"], style_ref, a.note,
+                                    reseed=a.reseed)
+                print(f"      -> {rec['filename']}  seed={rec['seed']}  "
+                      f"subject_area={rec['quality'].get('subject_area')}")
     print(f"\nlibrary now holds {len(load_library())} character(s) in {LIBRARY}")
 
 

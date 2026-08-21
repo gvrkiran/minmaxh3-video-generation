@@ -34,7 +34,7 @@ type Scene = {
   seconds?: number; hasAudio: boolean; hasShot: boolean; audio?: string;
 };
 type Progress = {
-  stage: "idle" | "narrating" | "rendering" | "assembling" | "done";
+  stage: "idle" | "waiting" | "narrating" | "rendering" | "assembling" | "done";
   label: string; scenesDone: number; scenesTotal: number;
   minutesLeft: number | null; finalReady: boolean; finalUpdatedAt: number | null;
   scenes: Scene[]; failed?: string;

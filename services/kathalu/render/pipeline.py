@@ -36,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gpu_lock import GpuLock  # noqa: E402
 import comfy_client as comfy  # noqa: E402
 import h3_prompt  # noqa: E402
 import moral_card  # noqa: E402
@@ -410,7 +411,13 @@ def main() -> None:
     wanted = [a.only_stage] if a.only_stage else list(STAGES)
 
     started = time.time()
-    with StoryLock(story_dir):
+    # The per-story lock stops two drivers on ONE story. This one stops two stories from
+    # using the card at the same time -- a 24 GB 4090 cannot hold two of these stacks, and
+    # the voice model in particular loads outside ComfyUI's queue where nothing serialises
+    # it. Held across the whole render rather than per shot, because reloading these weights
+    # costs far more than waiting for them.
+    with StoryLock(story_dir), GpuLock("making the video",
+                                       story=script.get("title") or story_dir.name):
         print(f"{script.get('title') or story_dir.name}  |  {len(script['scenes'])} scenes  "
               f"|  {a.aspect}  |  {story_dir}\n")
 

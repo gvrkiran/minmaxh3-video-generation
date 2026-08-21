@@ -239,7 +239,7 @@ export type SceneProgress = {
 };
 
 export type Progress = {
-  stage: "idle" | "narrating" | "rendering" | "assembling" | "done";
+  stage: "idle" | "waiting" | "narrating" | "rendering" | "assembling" | "done";
   label: string; scenesDone: number; scenesTotal: number;
   minutesLeft: number | null; finalReady: boolean;
   /** When final.mp4 was last written. A rebuild begins with the previous film still on
@@ -297,11 +297,28 @@ export async function readProgress(storyDir: string): Promise<Progress> {
     ? errText.trim().split("\n").slice(-3).join(" ").slice(0, 300)
     : undefined;
 
+  // The driver prints its progress to a log; the tail is enough to spot a queued story.
+  let logText = "";
+  for (const name of ["render.log", "redo.log"]) {
+    const bytes = await fs.readFile(join(storyDir, name)).catch(() => null);
+    if (bytes) logText = new TextDecoder("utf-8").decode(bytes).slice(-4000) || logText;
+  }
+
   let stage: Progress["stage"] = "idle";
   let label = "Ready to start";
   let minutesLeft: number | null = null;
 
-  if (finalReady) {
+  // Only one story can use the graphics card at a time -- it has 24 GB and one of these
+  // models alone stages about 20. A queued story therefore sits doing nothing, which from
+  // her side is indistinguishable from being broken unless it says so.
+  const waiting = /WAITING FOR GPU: (.+)$/m.exec(logText ?? "");
+  const stillWaiting = waiting !== null
+    && !/\(got the GPU after waiting/.test(logText ?? "");
+
+  if (stillWaiting) {
+    stage = "waiting";
+    label = "Waiting for the other video to finish first";
+  } else if (finalReady) {
     stage = "done";
     label = "Your video is ready";
   } else if (shotsDone > 0 || stages.render) {

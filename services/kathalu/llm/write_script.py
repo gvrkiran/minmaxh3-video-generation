@@ -34,7 +34,13 @@ import h3_prompt  # noqa: E402
 CHARS_PER_SEC = 12.27          # phase 0, measured
 SOFT_CHARS = 124               # 243 frames / 10.125 s
 HARD_CHARS = 184               # 362 frames / 15.08 s
-MAX_SCENES = 12
+# Each scene is a separate shot, measured at 4.6 minutes of GPU, so this bounds how long a
+# film takes to make: 12 scenes is about 55 minutes, 18 about 85. It was 12, and it was
+# binding -- three of the first eight stories came back with exactly 12 scenes, which is what
+# a cap looks like when it is squeezing. None of them was actually cut off; the model
+# condensed to fit. But a longer story would be, and see below for why that is not allowed to
+# happen quietly.
+MAX_SCENES = 18
 MAX_SUBJECTS_PER_SHOT = 4      # separate refs at max fidelity; 9 is the node cap
 
 INSTRUCTIONS = """You are the director of a short animated film made from a printed Indian
@@ -161,7 +167,16 @@ def write_script(story: dict, cast_records: list[dict]) -> dict:
             "name": "script", "strict": True, "schema": SCHEMA}},
     })
     out = json.loads(got["choices"][0]["message"]["content"])
-    out["scenes"] = out["scenes"][:MAX_SCENES]
+    # Never silently drop the end of her story. The old line was out["scenes"][:MAX_SCENES],
+    # which would have cut the last scenes off without a word -- the film would simply stop
+    # before the ending and nothing would say why. If a story genuinely needs more shots than
+    # the cap, the story wins; the cost is a longer render, which is visible and hers to
+    # judge.
+    if len(out["scenes"]) > MAX_SCENES:
+        print(f"NOTE: this story came back as {len(out['scenes'])} scenes, more than the "
+              f"{MAX_SCENES} asked for. Keeping all of them -- cutting the end off the story "
+              f"would be worse than a long render.", flush=True)
+        out["scenes_over_cap"] = len(out["scenes"])
     out["_meta"] = {"model": got.get("model", MODEL), "usage": got.get("usage", {})}
     return out
 
