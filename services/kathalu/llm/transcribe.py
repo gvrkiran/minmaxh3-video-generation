@@ -35,6 +35,15 @@ from story_cleanup import MODEL, call_openai, data_url
 # large enough to be filled with invention rather than with the sentence's own obvious ending.
 MIN_LEGIBLE = 0.75
 
+# Transcribing is copying, not thinking, and on this task more reasoning makes the model
+# WORSE as well as dearer. Measured on the same unreadable page: at low effort it produced
+# 26 characters and rated the page 0.02 legible; at medium it produced 1,195 characters and
+# rated it 0.55. Given room to reason it reasons its way to what the text must have said,
+# which is the exact failure this stage exists to catch. Low effort is eight times cheaper
+# than the default AND separates the good page from the bad one far more sharply
+# (0.02 vs 0.82, against 0.55 vs 0.88 at medium).
+EFFORT = "low"
+
 GAP = "[UNREADABLE]"
 
 INSTRUCTIONS = """Transcribe the text printed on each page image, exactly as printed.
@@ -122,6 +131,7 @@ def transcribe_page(path: Path, ocr: dict, page_no: int, total: int) -> dict:
     }
     got = call_openai({
         "model": MODEL,
+        "reasoning_effort": EFFORT,
         "messages": [
             {"role": "system", "content": INSTRUCTIONS % {"gap": GAP}},
             {"role": "user", "content": [
@@ -137,6 +147,9 @@ def transcribe_page(path: Path, ocr: dict, page_no: int, total: int) -> dict:
     })
     out = json.loads(got["choices"][0]["message"]["content"])
     out["page"] = path.name
+    # Kept because reading pages is now the largest per-story API cost, and the only way to
+    # judge a cheaper model for this stage is to have the real token counts for this one.
+    out["usage"] = got.get("usage", {})
     return out
 
 
@@ -152,6 +165,16 @@ def transcribe(page_paths: list[Path], ocr: dict) -> dict:
     weights = [max(1, len(p["text"])) for p in pages]
     legible = sum(p["fraction_legible"] * w for p, w in zip(pages, weights)) / sum(weights)
 
+    # The model's own fraction_legible is a judgement and it is noisy -- the same page came
+    # back 0.88 and 0.98 on two identical calls. So record a countable signal next to it:
+    # how much real text came out per unreadable marker. Nothing depends on this yet, but a
+    # later cross-check needs a number that is not the model grading its own homework.
+    for pg in pages:
+        gaps = pg.get("unreadable_spans") or 0
+        real = len(pg.get("text", "").replace(GAP, ""))
+        pg["chars_per_gap"] = round(real / gaps, 1) if gaps else None
+        pg["real_chars"] = real
+
     worst = min(pages, key=lambda p: p["fraction_legible"])
     result = {
         "pages": pages,
@@ -160,6 +183,11 @@ def transcribe(page_paths: list[Path], ocr: dict) -> dict:
         "fraction_legible": round(legible, 3),
         "columns": max((p.get("column_count") or 1) for p in pages),
         "seconds": round(time.time() - started, 1),
+        "usage": {
+            "prompt_tokens": sum(p.get("usage", {}).get("prompt_tokens", 0) for p in pages),
+            "completion_tokens": sum(p.get("usage", {}).get("completion_tokens", 0)
+                                     for p in pages),
+        },
     }
 
     if legible < MIN_LEGIBLE:
