@@ -43,6 +43,7 @@ sys.path.insert(0, str(HERE.parent / "llm"))
 from gpu_lock import GpuLock                                      # noqa: E402
 from story_cleanup import MODEL, call_openai                      # noqa: E402
 import moral_card                                                 # noqa: E402
+import subtitles                                                  # noqa: E402
 from pipeline import (                                            # noqa: E402
     MEGAPIXELS, StoryLock, media_seconds, resolution, run_cmd,
 )
@@ -287,7 +288,7 @@ def speak_telugu(cut: dict, work: Path, voice: str) -> None:
 # ----------------------------------------------------------------- assembling it
 
 def build(story_dir: Path, cut: dict, work: Path, aspect: str, out: Path,
-          trim: bool = False) -> Path:
+          trim: bool = False, subtitle: bool = False) -> Path:
     """Lay the narration over the existing shots.
 
     `trim` decides which of the two lengths wins. The long film pads the voice out to the
@@ -299,6 +300,9 @@ def build(story_dir: Path, cut: dict, work: Path, aspect: str, out: Path,
     narrated = work / "narrated"
     narrated.mkdir(parents=True, exist_ok=True)
     parts = []
+    # What is said over each joined piece, and for how long. Collected here because this is
+    # the only place that knows the final lengths -- a short's shots are trimmed to the voice.
+    spoken: list[tuple[str, float]] = []
     for beat in cut["beats"]:
         idx = beat["scene"]
         shot = story_dir / "shots" / f"scene_{idx:02d}.mp4"
@@ -307,8 +311,8 @@ def build(story_dir: Path, cut: dict, work: Path, aspect: str, out: Path,
         shot_seconds = media_seconds(shot)
         target = shot_seconds
         if trim:
-            spoken = media_seconds(wav)
-            target = min(shot_seconds, spoken + SHORT_TAIL)
+            voice_seconds = media_seconds(wav)
+            target = min(shot_seconds, voice_seconds + SHORT_TAIL)
         if not piece.exists():
             run_cmd(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                      "-i", str(shot), "-i", str(wav),
@@ -317,6 +321,7 @@ def build(story_dir: Path, cut: dict, work: Path, aspect: str, out: Path,
                      "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                      "-movflags", "+faststart", "-t", f"{target:.5f}", str(piece)])
         parts.append(piece)
+        spoken.append((beat["narration"], target))
         note = f" (cut from {shot_seconds:.1f}s)" if trim and target < shot_seconds - 0.05 else ""
         print(f"  scene {idx:2d}  {target:6.2f}s  narrated{note}")
 
@@ -329,6 +334,7 @@ def build(story_dir: Path, cut: dict, work: Path, aspect: str, out: Path,
                 telugu=cut["moral"], english="", audio=moral_wav,
                 width=width, height=height, out=card, run_cmd=run_cmd)
         parts.append(card)
+        spoken.append((cut["moral"], media_seconds(card)))
 
     listing = work / "concat.txt"
     listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in parts), encoding="utf-8")
@@ -337,6 +343,18 @@ def build(story_dir: Path, cut: dict, work: Path, aspect: str, out: Path,
              "-c:v", "libx264", "-preset", "medium", "-crf", "19",
              "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
              "-movflags", "+faststart", str(out)])
+
+    if subtitle:
+        # Both, because they are wanted for different things: YouTube takes the .srt as real
+        # captions it can index, and everywhere else the words have to be in the picture,
+        # since a short on a phone is usually watched with the sound off.
+        srt = out.with_suffix(".srt")
+        count = subtitles.write_srt(spoken, srt)
+        burned = out.with_name(out.stem + "-subtitled.mp4")
+        # The real frame, not the aspect setting: the caption size is computed from it.
+        width, height = resolution(aspect, MEGAPIXELS)
+        subtitles.burn(out, srt, burned, run_cmd, width, height)
+        print(f"  subtitles: {count} caption(s) -> {srt.name} and {burned.name}")
     return out
 
 
@@ -394,7 +412,11 @@ def make(story_dir: Path, kind: str, language: str, aspect: str, voice: str,
                      story=script.get("title") or story_dir.name):
             speak_telugu(cut, work, voice)
 
-    build(story_dir, cut, work, aspect, out, trim=(kind == "short"))
+    # Subtitles for the English films only: the Telugu ones are watched by people who speak
+    # Telugu, and burning Telugu text over the picture would need the shaping work the moral
+    # card does rather than ffmpeg's own renderer.
+    build(story_dir, cut, work, aspect, out, trim=(kind == "short"),
+          subtitle=(language == "en"))
     print(f"  -> {out.name}  {media_seconds(out):.1f}s")
     return out
 

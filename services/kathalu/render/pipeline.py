@@ -122,7 +122,7 @@ class StoryLock:
 
 # ------------------------------------------------------------------ ffmpeg
 
-def run_cmd(args: list[str], attempts: int = 3) -> str:
+def run_cmd(args: list[str], attempts: int = 3, cwd: Path | None = None) -> str:
     """Run a tool, retrying a crash.
 
     This ffmpeg build (gyan.dev 8.0-full) intermittently exits 3221225477
@@ -132,8 +132,12 @@ def run_cmd(args: list[str], attempts: int = 3) -> str:
     """
     last = None
     for attempt in range(1, attempts + 1):
+        # cwd matters for ffmpeg's subtitles filter: it parses the filename itself, and a
+        # Windows path with a drive letter has to be escaped in a way that varies by build.
+        # Running from the file's own directory and naming it plainly sidesteps all of that.
         done = subprocess.run(args, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace")
+                              encoding="utf-8", errors="replace",
+                              cwd=str(cwd) if cwd else None)
         if done.returncode == 0:
             if attempt > 1:
                 print(f"      (succeeded on attempt {attempt})")
