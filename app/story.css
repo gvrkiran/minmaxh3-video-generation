@@ -327,3 +327,23 @@
   .ks-sticky-nav { flex-direction: column; align-items: stretch; }
   .ks-pending { order: -1; text-align: center; }
 }
+
+/* ------------------------------------------------------ which version to watch
+   Only rendered when she actually has a choice, so a story with one version looks
+   exactly as it always did. Big targets: this is used on a phone. */
+.ks-versions {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px;
+}
+.ks-vrow {
+  display: inline-flex; background: #f1ece4; border-radius: 999px; padding: 3px;
+}
+.ks-vrow button {
+  border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 15px; color: #6b5a45;
+  padding: 8px 16px; border-radius: 999px; min-height: 40px;
+}
+.ks-vrow button.on {
+  background: #fff; color: #3a2c1a; font-weight: 600;
+  box-shadow: 0 1px 3px rgba(60, 40, 15, 0.16);
+}
+.ks-vrow button:focus-visible { outline: 2px solid var(--ks-accent); outline-offset: 1px; }

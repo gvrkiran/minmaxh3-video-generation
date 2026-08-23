@@ -24,6 +24,10 @@ type Failure = {
   seconds: number;
 };
 
+type Version = {
+  id: string; length: "full" | "short"; language: "te" | "en"; rel: string; url: string;
+};
+
 type Filled = { before: string; inserted: string; after: string; confidence: string };
 type Character = {
   key: string; name: string; species: string; role: string;
@@ -48,6 +52,7 @@ type OpenStory = {
   storyDir: string; title: string; teluguTitle: string;
   moral: { telugu: string; english: string; source: string; video: string | null };
   finalVideo: string | null; scenes: EditScene[]; lastApplied: string[]; progress: Progress;
+  versions?: Version[];
 };
 /** One row of pending intent. Nothing is sent for a scene she has not touched. */
 type PendingEdit = { note: string; telugu: string; remove: boolean };
@@ -85,6 +90,9 @@ const COPY = {
     edit: "Edit", editTitle: "Change your video",
     editSub: "Watch any scene. Say what is wrong with it, or fix the words the narrator says. Change as many as you like, then make the changes all at once.",
     wholeVideo: "The whole video", theLesson: "The lesson at the end",
+    lengthLabel: "How long", voiceLabel: "Which voice",
+    fullLength: "The whole story", shortLength: "30 seconds",
+    inTelugu: "Telugu", inEnglish: "English",
     narratorSays: "What the narrator says", whatsWrongShort: "What is wrong with this scene?",
     leaveOut: "Leave this scene out", changed: "changed",
     pendingOne: "1 change ready", pendingMany: "changes ready",
@@ -125,6 +133,9 @@ const COPY = {
     edit: "మార్చండి", editTitle: "మీ వీడియో మార్చండి",
     editSub: "ఏ సన్నివేశమైనా చూడండి. ఏమి తప్పు అని చెప్పండి, లేదా కథకుడు చెప్పే మాటలు సరిచేయండి. ఎన్ని అయినా మార్చి, ఒకేసారి చేయించండి.",
     wholeVideo: "పూర్తి వీడియో", theLesson: "చివరిలో నీతి",
+    lengthLabel: "ఎంత సేపు", voiceLabel: "ఏ భాష",
+    fullLength: "పూర్తి కథ", shortLength: "30 సెకన్లు",
+    inTelugu: "తెలుగు", inEnglish: "ఇంగ్లీషు",
     narratorSays: "కథకుడు చెప్పేది", whatsWrongShort: "ఈ సన్నివేశంలో ఏమి తప్పు?",
     leaveOut: "ఈ సన్నివేశం వదిలేయండి", changed: "మార్చారు",
     pendingOne: "1 మార్పు సిద్ధం", pendingMany: "మార్పులు సిద్ధం",
@@ -139,6 +150,66 @@ const COPY = {
     moralPrinted: "పుస్తకం నుంచి",
   },
 } as const;
+
+/** Choose which cut to watch. Only appears when there IS a choice.
+ *
+ * Four versions exist for a new film -- Telugu and English, full length and thirty seconds --
+ * and that is four buttons too many for someone who just wants to watch her story. So this
+ * renders nothing at all unless more than one exists, and a row only appears if that
+ * particular choice is available: a story with a Telugu short but no English shows the length
+ * row and no language row.
+ *
+ * Telugu and the full story are the defaults, because that is the film she asked for. The
+ * other three are extras.
+ */
+function VersionPicker({ versions, pick, onPick, labels }: {
+  versions: Version[];
+  pick: Version;
+  onPick: (v: Version) => void;
+  labels: Record<string, string>;
+}) {
+  if (versions.length < 2) return null;
+  const has = (length: string, language: string) =>
+    versions.find((v) => v.length === length && v.language === language);
+  const lengths = Array.from(new Set(versions.map((v) => v.length)));
+  const languages = Array.from(new Set(versions.map((v) => v.language)));
+
+  const go = (length: string, language: string) => {
+    // Keep the other axis if that combination exists; otherwise move to whatever does, so a
+    // button is never dead.
+    const exact = has(length, language);
+    onPick(exact ?? versions.find((v) => v.length === length)
+                 ?? versions.find((v) => v.language === language) ?? versions[0]);
+  };
+
+  return (
+    <div className="ks-versions">
+      {lengths.length > 1 && (
+        <div className="ks-vrow" role="group" aria-label={labels.lengthLabel}>
+          {lengths.map((len) => (
+            <button key={len} type="button"
+              className={pick.length === len ? "on" : ""}
+              onClick={() => go(len, pick.language)}>
+              {len === "full" ? labels.fullLength : labels.shortLength}
+            </button>
+          ))}
+        </div>
+      )}
+      {languages.length > 1 && (
+        <div className="ks-vrow" role="group" aria-label={labels.voiceLabel}>
+          {languages.map((lang) => (
+            <button key={lang} type="button"
+              className={pick.language === lang ? "on" : ""}
+              onClick={() => go(pick.length, lang)}>
+              {lang === "te" ? labels.inTelugu : labels.inEnglish}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 export default function StoryStudio() {
   const [lang, setLang] = useState<"en" | "te">("en");
@@ -169,6 +240,10 @@ export default function StoryStudio() {
   const [open, setOpen] = useState<OpenStory | null>(null);
   const [edits, setEdits] = useState<Record<number, PendingEdit>>({});
   const [moralEdit, setMoralEdit] = useState<{ telugu: string; english: string } | null>(null);
+  // Which cut she is watching. Reset whenever a different story is opened, so opening an
+  // old film does not inherit "English, 30 seconds" from the last one.
+  const [watching, setWatching] = useState<Version | null>(null);
+  const [versions, setVersions] = useState<Version[]>([]);
   const [rebuilding, setRebuilding] = useState(false);
   // The moment she asked for changes. A rebuild is only finished once final.mp4 is
   // NEWER than this -- otherwise the previous film, still on disk, reads as done.
@@ -206,6 +281,12 @@ export default function StoryStudio() {
           setRebuildFrom(null);
           // A finished rebuild means every clip on the editor screen is stale, so reload it.
           if (screen === "edit") { setRebuilding(false); void openForEdit(storyDir, true); }
+          // The short and the English cuts are made after the film itself, so ask what
+          // exists now rather than assuming.
+          void fetch(`/api/story/open?dir=${encodeURIComponent(storyDir)}`)
+            .then((r) => r.json())
+            .then((o) => { if (o && !o.error) adoptVersions(o.versions ?? []); })
+            .catch(() => {});
           void loadPast();
         }
       }
@@ -329,6 +410,12 @@ export default function StoryStudio() {
 
   /** Open a finished film for editing. Reads everything off disk, so it works on a story
    *  made in an earlier session -- that is the point of having an Edit button at all. */
+  /** Telugu, full length, is what she asked for; everything else is an extra. */
+  function adoptVersions(list: Version[]) {
+    setVersions(list);
+    setWatching(list.find((v) => v.id === "te-full") ?? list[0] ?? null);
+  }
+
   async function openForEdit(dir: string, quiet = false) {
     const got = quiet
       ? await fetch(`/api/story/open?dir=${encodeURIComponent(dir)}`)
@@ -339,6 +426,7 @@ export default function StoryStudio() {
     setOpen(got);
     setStoryDir(got.storyDir);
     setProgress(got.progress ?? null);
+    adoptVersions(got.versions ?? []);
     if (!quiet) {
       setEdits({});
       setMoralEdit(null);
@@ -648,11 +736,17 @@ export default function StoryStudio() {
 
           {progress?.finalReady && (
             <>
-              <video className="ks-final" controls autoPlay
-                src={`/api/story/file?dir=${encodeURIComponent(storyDir)}&rel=final.mp4`} />
+              {watching && (
+                <VersionPicker versions={versions} pick={watching}
+                  onPick={setWatching} labels={t as unknown as Record<string, string>} />
+              )}
+              <video className="ks-final" controls autoPlay key={watching?.id ?? "te-full"}
+                src={watching?.url
+                  ?? `/api/story/file?dir=${encodeURIComponent(storyDir)}&rel=final.mp4`} />
               <div className="ks-nav">
                 <a className="ks-go" download
-                  href={`/api/story/file?dir=${encodeURIComponent(storyDir)}&rel=final.mp4`}>
+                  href={watching?.url
+                    ?? `/api/story/file?dir=${encodeURIComponent(storyDir)}&rel=final.mp4`}>
                   {t.download}
                 </a>
                 <button className="ks-back" onClick={() => openForEdit(storyDir)}>{t.edit}</button>
@@ -695,7 +789,12 @@ export default function StoryStudio() {
           {open.finalVideo && !rebuilding && (
             <details className="ks-whole" open>
               <summary>{t.wholeVideo}</summary>
-              <video className="ks-final" controls preload="metadata" src={open.finalVideo} />
+              {watching && (
+                <VersionPicker versions={versions} pick={watching}
+                  onPick={setWatching} labels={t as unknown as Record<string, string>} />
+              )}
+              <video className="ks-final" controls preload="metadata"
+                key={watching?.id ?? "te-full"} src={watching?.url ?? open.finalVideo} />
             </details>
           )}
 

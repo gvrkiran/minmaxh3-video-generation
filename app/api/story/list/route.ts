@@ -1,7 +1,7 @@
 /** Screen 1: her finished videos, newest first. */
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { STORIES_ROOT, exists, readJson } from "@/lib/story-runner";
+import { STORIES_ROOT, exists, readJson, versionsOf } from "@/lib/story-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +29,7 @@ export async function GET() {
           madeAt: stat.mtimeMs,
           megabytes: Math.round((stat.size / 1024 ** 2) * 10) / 10,
           video: `/api/story/file?dir=${encodeURIComponent(dir)}&rel=final.mp4`,
+          versions: await versionsOf(dir),
         };
       })))
       .filter((s): s is NonNullable<typeof s> => Boolean(s))

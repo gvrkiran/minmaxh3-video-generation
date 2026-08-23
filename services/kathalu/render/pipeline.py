@@ -49,7 +49,7 @@ MEGAPIXELS = 0.4          # phase 0: the knob that decides whether a shot is 4.6
 STEPS = 20
 FIDELITY = "max"          # phase 0: same cost as "match", better identity
 TAIL_PAD = 0.55           # seconds of air after the last syllable
-STAGES = ("narrate", "fit", "render", "mux", "join")
+STAGES = ("narrate", "fit", "render", "mux", "join", "variants")
 
 # A 40-minute job whose stdout sits in an 8 KB buffer is a job with no
 # diagnostics when it dies. Learned the hard way: two drivers died mid-render
@@ -393,6 +393,33 @@ def stage_join(story_dir: Path, script: dict, state: dict) -> Path:
     return final
 
 
+def stage_variants(story_dir: Path, script: dict, aspect: str, voice: str) -> list[str]:
+    """The other three cuts: a Telugu short, and English in both lengths.
+
+    Cheap, because the shots carry no speech and are reused as they are -- no scene is
+    rendered twice. Imported here rather than at the top because variants.py imports this
+    module for its ffmpeg helpers, and at module scope that is a cycle.
+
+    Done inside the render's existing GPU lock deliberately. The Telugu voice model is a GPU
+    model, so acquiring the card once for the film and its Telugu short beats releasing it
+    and queueing again. English is Piper on the CPU and would not need the lock at all.
+    """
+    import variants
+
+    print("[6/6] versions (short and English, reusing the shots that already exist)")
+    made = []
+    for kind, language in (("short", "te"), ("full", "en"), ("short", "en")):
+        try:
+            out = variants.make(story_dir, kind, language, aspect, voice)
+            made.append(out.name)
+        except Exception as exc:                                        # noqa: BLE001
+            # One version failing must not lose the film that was just made. Say so and
+            # carry on -- she can ask for it again from the editor.
+            print(f"  {language}/{kind} did not work: {type(exc).__name__}: {exc}",
+                  flush=True)
+    return made
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--story-dir", required=True)
@@ -455,6 +482,14 @@ def main() -> None:
             save_state(story_dir, state)
             print(f"\n{final}  {media_seconds(final):.2f}s  "
                   f"{final.stat().st_size / 1024 ** 2:.1f} MB")
+
+        if "variants" in wanted:
+            made = stage_variants(story_dir, script, a.aspect, a.voice)
+            state["stages"]["variants"] = "done"
+            state["variants"] = made
+            save_state(story_dir, state)
+            if made:
+                print("  also made: " + ", ".join(made))
 
     print(f"\ntotal {(time.time() - started) / 60:.1f} min")
 

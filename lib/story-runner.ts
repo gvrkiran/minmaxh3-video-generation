@@ -346,3 +346,36 @@ export async function readProgress(storyDir: string): Promise<Progress> {
     minutesLeft, finalReady, finalUpdatedAt, scenes, failed,
   };
 }
+
+/** Which cuts of a finished film are on disk.
+ *
+ * A story has up to four: the Telugu original, a 30-second Telugu short, and English in both
+ * lengths. Only the ones that exist are returned, and the caller shows a chooser only when
+ * there is more than one -- a story made before any of this existed should look exactly as
+ * it did, with nothing new to understand.
+ *
+ * The Telugu full film keeps the plain name final.mp4 it has always had. Renaming it would
+ * have broken every link, every state file and the resume path for no gain.
+ */
+export type Version = {
+  id: string; length: "full" | "short"; language: "te" | "en"; rel: string; url: string;
+};
+
+export async function versionsOf(dir: string): Promise<Version[]> {
+  const candidates: Array<Omit<Version, "url">> = [
+    { id: "te-full", length: "full", language: "te", rel: "final.mp4" },
+    { id: "te-short", length: "short", language: "te", rel: "final-te-short.mp4" },
+    { id: "en-full", length: "full", language: "en", rel: "final-en-full.mp4" },
+    { id: "en-short", length: "short", language: "en", rel: "final-en-short.mp4" },
+  ];
+  const found: Version[] = [];
+  for (const c of candidates) {
+    if (await exists(join(dir, c.rel))) {
+      found.push({
+        ...c,
+        url: `/api/story/file?dir=${encodeURIComponent(dir)}&rel=${encodeURIComponent(c.rel)}`,
+      });
+    }
+  }
+  return found;
+}

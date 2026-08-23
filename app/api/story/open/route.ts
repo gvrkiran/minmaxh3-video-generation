@@ -4,7 +4,7 @@
  * read off disk, so she can come back to a film made last week and change a scene. Nothing
  * about editing depends on the session that made it.
  */
-import { fail, join, readJson, readProgress, safeStoryDir } from "@/lib/story-runner";
+import { fail, join, readJson, readProgress, safeStoryDir, versionsOf } from "@/lib/story-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +49,7 @@ export async function GET(request: Request) {
         video: progress.scenes.length ? clip("narrated/zz_moral.mp4") : null,
       },
       finalVideo: progress.finalReady ? clip("final.mp4") : null,
+      versions: await versionsOf(dir),
       progress,
       lastApplied: lastEdit?.applied ?? [],
       scenes: script.scenes.map((scene) => {
