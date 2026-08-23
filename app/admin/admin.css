@@ -1,0 +1,140 @@
+/* Dashboard styling. Dense and plain on purpose -- this page is read while something is
+   going wrong, so scanning matters more than charm. /story is the friendly one. */
+
+.ad {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 22px 20px 60px;
+  font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  color: #1d2228;
+}
+
+.ad-top { display: flex; align-items: baseline; gap: 14px; }
+.ad h1 { font-size: 21px; margin: 0 0 2px; letter-spacing: -0.01em; }
+.ad h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em;
+         color: #6b7480; margin: 26px 0 9px; }
+.ad-live { font-size: 12px; color: #98a1ac; }
+.ad-h2row { display: flex; align-items: baseline; justify-content: space-between; }
+.ad-toggle { font-size: 12.5px; color: #6b7480; display: flex; align-items: center; gap: 6px; }
+
+.ad-dead {
+  background: #fdecec; border-left: 3px solid #c0392b; color: #7d241a;
+  padding: 10px 13px; border-radius: 0 7px 7px 0; margin: 12px 0;
+}
+
+/* ---------------------------------------------------------------- summary tiles */
+.ad-tiles { display: flex; flex-wrap: wrap; gap: 9px; margin: 16px 0 4px; }
+.ad-tile {
+  flex: 1 1 118px; background: #f6f7f9; border: 1px solid #e6e9ed;
+  border-radius: 9px; padding: 10px 12px; display: flex; flex-direction: column; gap: 1px;
+}
+.ad-tile-n { font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.ad-tile-l { font-size: 11.5px; color: #6b7480; }
+.ad-t-good { background: #eefaf1; border-color: #cdeed8; }
+.ad-t-busy { background: #eef4fd; border-color: #cfe0f7; }
+.ad-t-warn { background: #fff8e8; border-color: #f3e2b8; }
+.ad-t-bad  { background: #fdecec; border-color: #f4cdc9; }
+
+/* ---------------------------------------------------------------- gpu + watchdog */
+.ad-gpu {
+  margin: 14px 0 0; padding: 11px 13px; background: #f6f7f9;
+  border: 1px solid #e6e9ed; border-radius: 9px;
+}
+.ad-gpu p { margin: 0 0 3px; }
+.ad-gpu p:last-child { margin-bottom: 0; }
+.ad-ok { color: #2c7a45; }
+.ad-warn { color: #9a6a10; }
+
+/* ---------------------------------------------------------------- happening now */
+.ad-now {
+  display: grid; grid-template-columns: 1fr auto; gap: 3px 14px; align-items: center;
+  padding: 10px 13px; border-radius: 9px; margin-bottom: 7px;
+  background: #eef4fd; border: 1px solid #cfe0f7;
+}
+.ad-queued { background: #fff8e8; border-color: #f3e2b8; }
+.ad-detail { font-size: 12.5px; color: #55606c; }
+.ad-bar {
+  grid-column: 1 / -1; height: 5px; background: #dbe4ef; border-radius: 3px;
+  overflow: hidden; margin-top: 4px;
+}
+.ad-bar > span { display: block; height: 100%; background: #3d7ac4; }
+
+/* ---------------------------------------------------------------- needs you */
+.ad-attn {
+  padding: 11px 13px; border-radius: 9px; margin-bottom: 8px;
+  background: #fffdf7; border: 1px solid #eee0c0;
+}
+.ad-attn-head { display: flex; align-items: center; gap: 9px; margin-bottom: 5px; }
+.ad-title { font-weight: 600; }
+.ad-sub { display: block; font-size: 11.5px; color: #8b949f; }
+.ad-err {
+  margin: 5px 0 0; padding: 8px 10px; background: #fdf1f0; border-radius: 6px;
+  font: 11.5px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: #7d241a; white-space: pre-wrap; overflow-x: auto;
+}
+.ad-edits { margin: 5px 0 0; padding-left: 19px; }
+.ad-edits li { margin-bottom: 3px; }
+.ad-kind {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: #8b949f; border: 1px solid #e2e6ea; border-radius: 4px; padding: 0 4px;
+}
+
+/* ---------------------------------------------------------------- the table */
+.ad-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ad-table th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: #98a1ac; font-weight: 600; padding: 0 9px 6px; border-bottom: 1px solid #e6e9ed;
+}
+.ad-table td { padding: 8px 9px; border-bottom: 1px solid #f0f2f4; vertical-align: top; }
+.ad-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ad-cell-title { max-width: 260px; }
+.ad-r-failed { background: #fefaf9; }
+.ad-r-abandoned { background: #fafafa; color: #8b949f; }
+.ad-over { color: #9a6a10; font-size: 11px; }
+
+.ad-chip {
+  display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 20px;
+  background: #eef0f3; color: #55606c; white-space: nowrap;
+}
+.ad-done { background: #e4f5ea; color: #256b3c; }
+.ad-running { background: #e3eefc; color: #24568f; }
+.ad-queued { background: #fdf3dd; color: #8a5d0a; }
+.ad-failed { background: #fbe0dd; color: #8c2a1e; }
+.ad-abandoned { background: #eceff1; color: #74808c; }
+
+.ad-more {
+  font-size: 11.5px; background: none; border: 1px solid #dfe3e8; border-radius: 5px;
+  padding: 2px 8px; cursor: pointer; color: #55606c;
+}
+.ad-more:hover { background: #f4f6f8; }
+
+.ad-detailrow > td { background: #fafbfc; }
+.ad-dl {
+  display: grid; grid-template-columns: 132px 1fr; gap: 3px 14px; margin: 2px 0 8px;
+  font-size: 12.5px;
+}
+.ad-dl dt { color: #8b949f; }
+.ad-dl dd { margin: 0; }
+.ad-dl code { font: 11.5px ui-monospace, Consolas, monospace; color: #444d57; }
+.ad-applied { margin: 0; padding-left: 17px; }
+.ad-links { display: flex; gap: 14px; font-size: 12.5px; }
+.ad-links a { color: #2b6cb0; }
+
+.ad-log {
+  margin: 0; padding: 11px 13px; background: #1f2429; color: #d8dee4;
+  border-radius: 8px; overflow-x: auto;
+  font: 11.5px/1.6 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+@media (max-width: 760px) {
+  .ad-dl { grid-template-columns: 1fr; }
+  .ad-table { font-size: 12px; }
+  .ad-table th:nth-child(4), .ad-table td:nth-child(4),
+  .ad-table th:nth-child(5), .ad-table td:nth-child(5) { display: none; }
+}
+
+/* A finished film whose edit was refused reads as "done" everywhere else, so this needs to
+   stand out on its own -- it is work she asked for that never happened. */
+.ad-refused { margin-top: 4px; }
+.ad-refused b { font-size: 12.5px; color: #8c2a1e; }
+.ad-edit-refused { background: #fbe0dd; color: #8c2a1e; }

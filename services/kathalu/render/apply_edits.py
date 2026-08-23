@@ -72,6 +72,42 @@ REVISE_SCHEMA = {
 }
 
 
+def has_roman(text: str) -> bool:
+    """Any Latin letters at all. Telugu punctuation and digits are fine."""
+    return any("a" <= c.lower() <= "z" for c in text)
+
+
+TRANSLITERATE = """Rewrite this Telugu sentence entirely in Telugu script.
+- Words already in Telugu script: leave them exactly as they are.
+- Words spelled in Roman letters are Telugu spelled phonetically. Write them in Telugu
+  script. gopanna -> గోపన్న, chesukuni -> చేసుకుని.
+- Do NOT translate, reword, shorten, lengthen, correct or improve anything. Keep her
+  wording and her word order exactly. Only the spelling changes.
+- Write any numerals as Telugu words.
+- Return only the sentence, nothing else."""
+
+
+def to_telugu_script(text: str) -> str:
+    """Rewrite Roman-spelled Telugu into Telugu script, changing nothing else.
+
+    Transliteration, not translation. She writes "gopanna" or "chesukuni" because that is how
+    Telugu gets typed on a phone keyboard, and the voice model needs the native script. Her
+    sentence, her words, her word order -- only the spelling changes.
+    """
+    got = call_openai({
+        "model": MODEL,
+        "reasoning_effort": "low",
+        "messages": [
+            {"role": "system", "content": TRANSLITERATE},
+            {"role": "user", "content": text},
+        ],
+    })
+    out = (got["choices"][0]["message"]["content"] or "").strip()
+    # If it still carries Roman letters the caller's validator will say so, rather than this
+    # quietly passing on something the voice cannot read.
+    return out or text
+
+
 def revise_action(scene: dict, note: str) -> dict:
     got = call_openai({
         "model": MODEL,
@@ -132,6 +168,17 @@ def main() -> None:
         touched = False
 
         if telugu and telugu != scene["telugu_narration"].strip():
+            # She types Telugu the way Telugu speakers actually type it -- part native
+            # script, part Roman transliteration ("gopanna", "chesukuni"). The validator was
+            # right that the voice and video models need native script, and wrong to stop
+            # there: it refused her words, wrote the reason to edit.err where nothing showed
+            # it to her, and six of her edits across two stories died silently. Converting
+            # is a two-second call; refusing is a dead end.
+            if has_roman(telugu):
+                converted = to_telugu_script(telugu)
+                print(f"  scene {index}: converted Roman spelling to Telugu script",
+                      flush=True)
+                telugu = converted
             problems = h3_prompt.validate_narration(
                 telugu, CHARS_PER_SEC, SOFT_CHARS, HARD_CHARS)
             if problems:
@@ -182,6 +229,9 @@ def main() -> None:
     moral = plan.get("moral") or {}
     new_moral_te = (moral.get("telugu") or "").strip()
     if new_moral_te and new_moral_te != (script.get("telugu_moral") or "").strip():
+        if has_roman(new_moral_te):
+            new_moral_te = to_telugu_script(new_moral_te)
+            print("  the lesson: converted Roman spelling to Telugu script", flush=True)
         problems = h3_prompt.validate_narration(
             new_moral_te, CHARS_PER_SEC, SOFT_CHARS, HARD_CHARS)
         if problems:
@@ -214,6 +264,11 @@ def main() -> None:
         if path.exists():
             path.unlink()
             print(f"  cleared {path.name}", flush=True)
+
+    # Clear the plan. It used to be left on disk after being applied, so the dashboard
+    # counted finished work as still waiting -- twelve outstanding edits of which six were
+    # already done. What was asked for is preserved in last-edit.json below.
+    (story_dir / "pending-edits.json").unlink(missing_ok=True)
 
     (story_dir / "last-edit.json").write_text(
         json.dumps({"applied": applied}, ensure_ascii=False, indent=2), encoding="utf-8")

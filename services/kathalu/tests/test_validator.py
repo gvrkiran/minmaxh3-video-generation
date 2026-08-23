@@ -120,7 +120,7 @@ def _too_many_refs():
 
 # ---- narration cases ----
 
-@case("narration over the 15-second ceiling", "over the 184-char ceiling")
+@case("narration over the 15-second ceiling", "one scene can only hold")
 def _too_long():
     long_te = "\u0c12\u0c15 \u0c30\u0c4b\u0c1c\u0c41 \u0c28\u0c15\u0c4d\u0c15 " * 20
     return h3_prompt.validate_narration(long_te, CPS, SOFT, HARD)

@@ -289,7 +289,10 @@ export async function readProgress(storyDir: string): Promise<Progress> {
   const stages = state?.stages ?? {};
   // A redo writes its own log, so check both or a failed redo looks like silence.
   let errText = "";
-  for (const name of ["redo.err", "render.err"]) {
+  // edit.err was missing here, and that is how six of her edits died in silence: the editor
+  // writes its refusals there, the screen only ever read the render logs, so pressing "make
+  // the changes" appeared to do nothing at all.
+  for (const name of ["edit.err", "redo.err", "render.err"]) {
     const bytes = await fs.readFile(join(storyDir, name)).catch(() => null);
     if (bytes) errText = new TextDecoder("utf-8").decode(bytes).trim() || errText;
   }

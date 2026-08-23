@@ -235,6 +235,8 @@ def validate_narration(text: str, chars_per_second: float,
         errors.append("narration contains no Telugu characters at all")
     n = len(text)
     if n > hard_chars:
-        errors.append(f"narration is {n} chars (~{n / chars_per_second:.1f}s), over the "
-                      f"{hard_chars}-char ceiling for a {MAX_FRAMES}-frame shot")
+        errors.append(
+            f"this would take about {n / chars_per_second:.0f} seconds to read aloud, and "
+            f"one scene can only hold about {hard_chars / chars_per_second:.0f}. Shorten it, "
+            f"or split it across two scenes")
     return errors
