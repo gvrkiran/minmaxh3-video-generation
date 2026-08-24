@@ -23,8 +23,27 @@ import { STORIES_ROOT, exists, join, readJson, storySlug } from "./story-runner"
 type Script = { title?: string; english_title?: string };
 type Story = { title?: string; title_english?: string };
 
-/** The name this story should be filed under: English if we have one, else its own title. */
+/** Is this folder name a guess at the story, rather than its name?
+ *
+ * Only a guess gets replaced. A dry run over the real library wanted to turn
+ * `the-fox-and-the-stork` into `నక్క-మరియు-కొంగ`, because that story predates english_title
+ * and the Telugu title was the only one left to fall back to. Renaming a perfectly good
+ * folder into one nobody can type is not a fix.
+ */
+function looksLikeAGuess(name: string): boolean {
+  // The timestamp fallback, used when a title slugged to nothing at all.
+  if (/^story-\d{10,}$/.test(name)) return true;
+  // A title is a few words. Anything this long is a sentence -- the opening line of the
+  // story, or once an instruction pasted in by mistake.
+  if (name.length > 40) return true;
+  return false;
+}
+
+/** The name this story should be filed under, or null to leave it as it is. */
 export async function wantedName(dir: string): Promise<string | null> {
+  const current = dir.slice(dir.lastIndexOf("/") + 1);
+  if (!looksLikeAGuess(current)) return null;
+
   const script = await readJson<Script>(join(dir, "script.json"));
   const story = await readJson<Story>(join(dir, "story.json"));
   // English first, because a Telugu folder name is correct but nobody can type it at a
@@ -33,7 +52,9 @@ export async function wantedName(dir: string): Promise<string | null> {
                 || script?.title || story?.title || "").trim();
   if (!best) return null;
   const slug = storySlug(best);
-  return slug.startsWith("story-") ? null : slug;
+  if (!slug || slug.startsWith("story-")) return null;
+  // Do not swap one sentence-length name for another.
+  return looksLikeAGuess(slug) ? null : slug;
 }
 
 /** Rewrite absolute paths inside the story's own JSON so none points at the old folder. */
