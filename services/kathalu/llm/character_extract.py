@@ -3,10 +3,12 @@
 One call does both, because both need the same inputs: the cleaned story text and the
 page photographs. It returns
 
-  * a style paragraph describing THIS book's illustration style, derived from her actual
-    pages. It is prepended verbatim to every character prompt so the whole cast matches
-    each other and matches the book.
   * one entry per character that actually acts, with a self-contained visual description.
+
+It used to return a style paragraph too, describing the illustration style of the book it
+was reading, and that paragraph decided what the whole film looked like. The film now has
+one fixed house style (house_style.CAST_STYLE), so this call does no art direction at all --
+it stamps `style_id` on its output and leaves the look to build_cast.py.
 
 Two constraints come from downstream and are enforced here rather than discovered later:
 
@@ -32,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 
 from source_text import english_moral, english_story, english_title  # noqa: E402
 from story_cleanup import MODEL, call_openai, data_url  # noqa: E402
+from house_style import STYLE_ID  # noqa: E402
 
 MAX_CAST = 6
 
@@ -40,15 +43,10 @@ from a printed Indian children's moral story.
 
 You get the cleaned story text and photographs of the original printed pages.
 
-FIRST, the style paragraph.
-Look at the illustrations in the photographs and describe that specific style in one dense
-paragraph: rendering technique, line and shading treatment, colour palette and saturation,
-proportions, how eyes and faces are drawn, lighting. Write it as instructions to an
-illustrator who must match it, not as art criticism. This paragraph is prepended to every
-character portrait prompt, so it must be concrete and repeatable. Do not mention any
-individual character in it, and do not name real artists or studios.
+The film is made in one fixed house style, which you do not choose and must not describe.
+Your job is only the cast. Read the photographs for who is in the story and what they look
+like -- their colours, clothing and props -- not for how the book draws them.
 
-SECOND, the cast.
 List only characters who actually appear and act, at most %(max_cast)d, most important first.
 Merge interchangeable groups into one entry ("three thieves" -> one thief, count 3) since
 they share a design. Skip characters who are only mentioned.
@@ -83,12 +81,6 @@ SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "style_paragraph": {"type": "string"},
-        "palette": {
-            "type": "array",
-            "description": "4-6 dominant colours of the book's art, as plain names.",
-            "items": {"type": "string"},
-        },
         "characters": {
             "type": "array",
             "items": {
@@ -115,7 +107,7 @@ SCHEMA = {
             },
         },
     },
-    "required": ["style_paragraph", "palette", "characters"],
+    "required": ["characters"],
 }
 
 NAME_TOKEN_MIN = 4
@@ -169,6 +161,7 @@ def extract(story: dict, page_paths: list[Path]) -> dict:
     })
     out = json.loads(got["choices"][0]["message"]["content"])
     out["characters"] = out["characters"][:MAX_CAST]
+    out["style_id"] = STYLE_ID
     out["_meta"] = {"model": got.get("model", MODEL), "usage": got.get("usage", {})}
     out["_name_leaks"] = leaked_names(out["characters"])
     return out
@@ -228,9 +221,7 @@ def main() -> None:
     out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"title: {story.get('title')}")
-    print(f"palette: {', '.join(result['palette'])}")
-    print(f"\nstyle paragraph ({len(result['style_paragraph'])} chars):")
-    print("  " + result["style_paragraph"])
+    print(f"house style: {result['style_id']}")
     print(f"\ncast of {len(result['characters'])}:")
     for c in result["characters"]:
         tag = f"x{c['count']}" if c["count"] > 1 else "  "

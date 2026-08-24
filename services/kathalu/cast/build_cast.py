@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "llm"))
 import comfy_client as comfy  # noqa: E402
 from gpu_lock import GpuLock  # noqa: E402
+from house_style import CAST_STYLE, STYLE_ID  # noqa: E402
 
 LIBRARY = Path(r"H:\KathaluStudio\characters")
 UNET_GGUF = "qwen-image-edit-2511-Q6_K.gguf"
@@ -88,17 +89,23 @@ def resolution(character: dict) -> tuple[int, int]:
     return (1152, 768) if wide else (768, 1152)
 
 
-def portrait_prompt(character: dict, style_paragraph: str) -> str:
+def portrait_prompt(character: dict) -> str:
     """Note that there is no `note` parameter. A tweak is merged into `appearance`
     upstream by revise_appearance(); appending it here left the original and the
-    requested colours both standing in the prompt, and Qwen drew two animals."""
+    requested colours both standing in the prompt, and Qwen drew two animals.
+
+    Nor is there a style parameter any more. The look used to come from the book being
+    read, via the style paragraph the LLM wrote from her page photographs; it is now the
+    one house style in house_style.CAST_STYLE. The reference image is still passed to the
+    sampler and still nudges the result, so the prompt no longer tells the model to match
+    it -- under the house style that instruction pulls the wrong way."""
     subject = "creature" if character.get("kind") == "animal" else "person"
     return " ".join([
         f"A full-body character reference of exactly one {character['species']} {subject}, "
         "and no other creature or person anywhere in the image.",
         character["appearance"].rstrip(". ") + ".",
         character["portrait_pose"].rstrip(". ") + ".",
-        "Match the illustration style of the reference image exactly. " + style_paragraph,
+        CAST_STYLE,
         FRAMING,
     ])
 
@@ -161,12 +168,31 @@ def finalize(src: Path, dst: Path) -> dict:
 
     h, w = img.shape[:2]
     band_h, band_w = max(2, h // 40), max(2, w // 40)
-    border = np.concatenate([
-        img[:band_h, :, :].reshape(-1, 3), img[-band_h:, :, :].reshape(-1, 3),
-        img[:, :band_w, :].reshape(-1, 3), img[:, -band_w:, :].reshape(-1, 3),
-    ]).astype(np.float32)
+
+    def bands(a: "np.ndarray") -> "np.ndarray":
+        return np.concatenate([
+            a[:band_h, :, :].reshape(-1, a.shape[2]), a[-band_h:, :, :].reshape(-1, a.shape[2]),
+            a[:, :band_w, :].reshape(-1, a.shape[2]), a[:, -band_w:, :].reshape(-1, a.shape[2]),
+        ]).astype(np.float32)
+
+    border = bands(img)
     bg = np.median(border, axis=0)
     bg_spread = float(np.mean(np.std(border, axis=0)))
+
+    # Plainness is judged on chroma and luminance separately, because they fail differently.
+    # The thing we are guarding against is scenery -- H3 reads a landscape behind the subject
+    # as part of the subject. Scenery is coloured, so it always moves chroma. A plain
+    # backdrop under the 3D house style is not flat: global illumination leaves a soft
+    # vertical gradient and the subject drops a shadow on the floor, which moves luminance a
+    # long way while leaving chroma alone. Judging on RGB spread alone conflated the two, and
+    # every portrait in this style failed all three attempts on a background that was clean.
+    # Measured on this machine: clean portraits, book-style and house-style alike, chroma
+    # 0.21-0.43 and luma 0.3-7.9; frames of real scenery chroma 5.3-11.7 and luma 37-48. The
+    # thresholds sit an order of magnitude clear of both sides.
+    lab = bands(cv2.cvtColor(img, cv2.COLOR_BGR2LAB))
+    chroma_spread = float(np.mean(np.std(lab[:, 1:], axis=0)))
+    luma_spread = float(np.std(lab[:, 0]))
+    plain = bool(chroma_spread < 1.5 and luma_spread < 20.0)
 
     dist = np.linalg.norm(img.astype(np.float32) - bg[None, None, :], axis=2)
     mask = dist > 24
@@ -185,11 +211,31 @@ def finalize(src: Path, dst: Path) -> dict:
         "subject_area": round(float(mask.mean()), 3),
         "subject_bbox": [x0, y0, x1, y1],
         "background_rgb": [int(v) for v in bg[::-1]],
-        "background_plain": bool(bg_spread < 4.0),
+        "background_plain": plain,
         "background_spread": round(bg_spread, 1),
+        "background_chroma_spread": round(chroma_spread, 2),
+        "background_luma_spread": round(luma_spread, 1),
         # H3 wants clear space around the subject; touching an edge risks a cropped read.
         "touches_frame": touching,
     }
+
+
+def reusable(character: dict, library: dict, reuse: bool, note: str) -> dict | None:
+    """The library entry to keep for this character, or None if it must be drawn again.
+
+    The style stamp is the non-obvious half. The library is shared across stories and keyed
+    only by name and species, so before the house style existed every entry matched the book
+    it was first drawn for. Reusing on key alone would put a flat book-style fox into a film
+    where everyone else is 3D -- silently, since reuse is the normal path and prints a
+    reassuring "reused from library". An entry drawn under a different style, or under none,
+    is stale by definition.
+    """
+    if not reuse or note:
+        return None
+    rec = library.get(character_key(character))
+    if rec is None or rec.get("styleId") != STYLE_ID:
+        return None
+    return rec
 
 
 def load_library() -> dict:
@@ -204,7 +250,7 @@ def load_library() -> dict:
     return out
 
 
-def make_portrait(character: dict, style_paragraph: str, style_ref_name: str,
+def make_portrait(character: dict, style_ref_name: str,
                   note: str = "", seed: int | None = None, reseed: bool = False) -> dict:
     key = character_key(character)
     cid = character_id(key)
@@ -217,7 +263,7 @@ def make_portrait(character: dict, style_paragraph: str, style_ref_name: str,
         character = {**character, "appearance": revision["appearance"]}
         print(f"      revised: {revision['changed']}")
 
-    prompt = portrait_prompt(character, style_paragraph)
+    prompt = portrait_prompt(character)
     if seed is None:
         # Deterministic by default, so an unchanged character redraws identically and the
         # library stays stable across stories. But "Try again" with no note would then
@@ -245,18 +291,20 @@ def make_portrait(character: dict, style_paragraph: str, style_ref_name: str,
         )
         produced = comfy.output_path(result["files"][0])
         stats = finalize(produced, final)
-        attempts.append((stats.get("background_spread", 999), produced, dict(stats)))
+        # Ranked on chroma, the same quantity the gate is judged on -- ranking on RGB spread
+        # would have picked the darkest attempt rather than the least scenic one.
+        attempts.append((stats.get("background_chroma_spread", 999), produced, dict(stats)))
         if stats.get("background_plain"):
             break
-        print(f"      background not plain (spread "
-              f"{stats.get('background_spread')}); reseeding")
+        print(f"      background not plain (chroma {stats.get('background_chroma_spread')}, "
+              f"luma {stats.get('background_luma_spread')}); reseeding")
         seed = int(hashlib.sha256(f"{seed}|{time.time_ns()}".encode()).hexdigest()[:8], 16) % 2_000_000_000
     else:
         # All three had scenery: keep the plainest rather than the last.
         best = min(attempts, key=lambda a: a[0])
         produced, stats = best[1], best[2]
         finalize(produced, final)
-        print(f"      kept the plainest of 3 (spread {best[0]})")
+        print(f"      kept the plainest of 3 (chroma {best[0]})")
 
     record = {
         # fields the existing studio's CharacterProfile reads
@@ -268,6 +316,7 @@ def make_portrait(character: dict, style_paragraph: str, style_ref_name: str,
         "createdAt": int(time.time() * 1000),
         # fields the story pipeline needs
         "characterKey": key,
+        "styleId": STYLE_ID,
         "kind": character["kind"],
         "species": character["species"],
         "gender": character["gender"],
@@ -322,13 +371,16 @@ def main() -> None:
     # Work out first whether anything actually needs the GPU. A cast that is entirely
     # reused from the library draws nothing, and must not queue behind a 40-minute render
     # for no reason.
-    todo = [c for c in wanted
-            if not (a.reuse and character_key(c) in library and not a.note)]
+    todo = [c for c in wanted if not reusable(c, library, a.reuse, a.note)]
     for character in wanted:
-        key = character_key(character)
-        if a.reuse and key in library and not a.note:
-            rec = library[key]
+        rec = reusable(character, library, a.reuse, a.note)
+        if rec:
             print(f"  {character['name']:<24s} reused from library ({rec['filename']})")
+    stale = [c for c in todo
+             if a.reuse and not a.note and character_key(c) in library]
+    for character in stale:
+        was = library[character_key(character)].get("styleId") or "the book it came from"
+        print(f"  {character['name']:<24s} redrawing: was {was}, house style is {STYLE_ID}")
 
     if todo:
         # One GPU, one job. The portraits go through ComfyUI, which queues graphs serially,
@@ -340,8 +392,7 @@ def main() -> None:
             print()
             print(f"drawing {len(todo)} character(s):")
             for character in todo:
-                rec = make_portrait(character, cast["style_paragraph"], style_ref, a.note,
-                                    reseed=a.reseed)
+                rec = make_portrait(character, style_ref, a.note, reseed=a.reseed)
                 print(f"      -> {rec['filename']}  seed={rec['seed']}  "
                       f"subject_area={rec['quality'].get('subject_area')}")
     print(f"\nlibrary now holds {len(load_library())} character(s) in {LIBRARY}")

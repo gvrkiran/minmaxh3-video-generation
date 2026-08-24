@@ -7,7 +7,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type CastFile = { style_paragraph?: string; characters?: Array<{ name: string }> };
+type CastFile = { style_id?: string; characters?: Array<{ name: string }> };
 type Record_ = {
   characterKey: string; name: string; species: string; role?: string;
   description: string; filename: string; createdAt: number;
@@ -24,7 +24,10 @@ async function castPayload(dir: string) {
   // Keep her cast in the order the extractor ranked them, not the order the disk happens to list.
   records.sort((a, b) => wanted.indexOf(a.name) - wanted.indexOf(b.name));
   return {
-    style: cast?.style_paragraph ?? "",
+    // Which house style this cast was built for. Nothing in /story renders it; it is here
+    // so the payload says what the pictures are, and so the admin page can tell a story
+    // drawn before the house style existed from one drawn after.
+    styleId: cast?.style_id ?? "",
     characters: records.map((r) => ({
       key: r.characterKey,
       name: r.name,
@@ -55,8 +58,10 @@ export async function POST(request: Request) {
       await fs.writeFile(path.join(dir, "story.json"), JSON.stringify(stored, null, 2), "utf8");
     }
 
-    // Qwen-Image-Edit needs an input image, and her own page is the style anchor that makes
-    // the cast look like it came out of her book.
+    // Qwen-Image-Edit needs an input image at all -- it has no text-to-image mode. Her page
+    // is still what we hand it, but it is no longer what decides the look: the house style in
+    // house_style.CAST_STYLE does. Measured, the anchor moves the result from matte to
+    // slightly glossier and no further, so it stays as the required input and nothing more.
     const pages = (await fs.readdir(path.join(dir, "pages")).catch(() => [] as string[])).sort();
     if (!pages.length) throw new Error("This story has no page image to take its style from.");
     const styleRef = path.join(dir, "pages", pages[0]);

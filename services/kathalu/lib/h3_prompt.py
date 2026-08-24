@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import re
 
+import house_style
+
 FPS = 24
 MIN_FRAMES, MAX_FRAMES = 124, 362
 MAX_REFS = 9
@@ -133,6 +135,14 @@ def build_prompt(*, action: str, subjects: list[dict], soundscape: str, music: s
         )
     elif dialogue:
         body += " " + dialogue.rstrip()
+
+    # The house cinematography, appended here rather than written into each `action`, so that
+    # every path gets it -- a first render, a re-planned script, a single scene redone from
+    # apply_edits -- and so that the `action` we store and show her in the review UI stays
+    # the readable description of what happens, not a wall of camera notes. It goes last
+    # because it qualifies the whole shot. See house_style.SCENE_LOOK for why the portraits
+    # cannot carry this half of the look.
+    body += " " + house_style.SCENE_LOOK
 
     return (
         "subject_definitions:\n" + "\n".join(defs) + "\n\n"

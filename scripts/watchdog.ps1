@@ -103,6 +103,44 @@ if ($down.Count -gt 0) {
   WriteSnapshot
 }
 
+# ---------------------------------------------------------------- interrupted films
+#
+# A render whose driver is gone but which has no finished film is not going to restart
+# itself. This has now happened three times, always the same way: an empty .err file, so
+# nothing crashed -- the process was killed. Node spawns the driver with detached:true, which
+# on Windows does not survive the parent's job object, so anything that takes down the web app
+# takes the render with it, seventeen shots into eighteen.
+#
+# Rather than chase Windows process semantics, make it recoverable. Resuming is free: the
+# pipeline skips every shot already on disk, so it picks up exactly where it stopped.
+$stories = "H:\KathaluStudio\stories"
+foreach ($lock in Get-ChildItem "$stories\*\pipeline.lock" -ErrorAction SilentlyContinue) {
+  $dir = $lock.Directory
+  if (Test-Path (Join-Path $dir.FullName "final.mp4")) { continue }
+  try { $held = Get-Content -LiteralPath $lock.FullName -Raw | ConvertFrom-Json } catch { continue }
+  if (Get-Process -Id $held.pid -ErrorAction SilentlyContinue) { continue }
+
+  # Only if there is actually something to resume -- a scene plan and at least one shot.
+  if (-not (Test-Path (Join-Path $dir.FullName "script.json"))) { continue }
+
+  $aspect = "9:16"
+  $statePath = Join-Path $dir.FullName "state.json"
+  if (Test-Path $statePath) {
+    try { $aspect = (Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json).aspect } catch { }
+    if (-not $aspect) { $aspect = "9:16" }
+  }
+  Note "INTERRUPTED: $($dir.Name) (driver $($held.pid) is gone, no final.mp4) -- resuming"
+  $body = @{ storyDir = ($dir.FullName -replace '\', '/'); aspect = $aspect; voice = "female" } |
+          ConvertTo-Json -Compress
+  try {
+    $null = Invoke-WebRequest -Uri "http://127.0.0.1:3000/api/story/render" -Method Post `
+              -ContentType "application/json" -Body $body -UseBasicParsing -TimeoutSec 60
+    Note "  resume requested for $($dir.Name)"
+  } catch {
+    Note "  could not resume $($dir.Name): $($_.Exception.Message)"
+  }
+}
+
 # One heartbeat line an hour proves the watchdog itself is alive without the log growing
 # without bound.
 if ($down.Count -eq 0 -and (Get-Date).Minute -lt 5) { Note "all up" }
