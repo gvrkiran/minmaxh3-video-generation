@@ -345,16 +345,19 @@ def build(story_dir: Path, cut: dict, work: Path, aspect: str, out: Path,
              "-movflags", "+faststart", str(out)])
 
     if subtitle:
-        # Both, because they are wanted for different things: YouTube takes the .srt as real
-        # captions it can index, and everywhere else the words have to be in the picture,
-        # since a short on a phone is usually watched with the sound off.
+        # Burned into the film itself, not into a file beside it. The first version wrote a
+        # separate final-en-short-subtitled.mp4 -- which nothing in the app ever served, so
+        # the subtitles existed on disk and were invisible everywhere anybody would look.
+        # The English video IS the subtitled video now.
         srt = out.with_suffix(".srt")
         count = subtitles.write_srt(spoken, srt)
-        burned = out.with_name(out.stem + "-subtitled.mp4")
-        # The real frame, not the aspect setting: the caption size is computed from it.
         width, height = resolution(aspect, MEGAPIXELS)
-        subtitles.burn(out, srt, burned, run_cmd, width, height)
-        print(f"  subtitles: {count} caption(s) -> {srt.name} and {burned.name}")
+        staged = out.with_name(out.stem + ".subbing.mp4")
+        subtitles.burn(out, srt, staged, run_cmd, width, height)
+        staged.replace(out)
+        # The .srt stays: YouTube takes it as real captions it can index and search, which
+        # burned-in pixels cannot be.
+        print(f"  subtitles: {count} caption(s) burned in, and {srt.name} written")
     return out
 
 
