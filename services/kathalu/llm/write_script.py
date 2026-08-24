@@ -95,6 +95,12 @@ and the two are the same story. Use each for what it is good for:
 Also give each scene a `summary_for_her`: one short plain-English sentence describing what
 happens, for a review screen read by someone non-technical.
 
+THE TITLE
+Give the story a real title in both languages -- `telugu_title` and `english_title`. A title,
+not the first line: "Akbar, Birbal and the Khichdi", not "One day, while Akbar and Birbal
+were strolling in the garden". The English one names the folder the story is filed under, so
+it has to be short and recognisable.
+
 THE MORAL
 Every one of these stories ends on a lesson, and the film ends on a card showing it.
 - If the printed story already carries a Moral, keep its meaning and wording; do not
@@ -133,11 +139,18 @@ SCHEMA = {
             },
         },
         "telugu_title": {"type": "string"},
+        "english_title": {
+            "type": "string",
+            "description": "The story's title in short, natural English -- four or five "
+                           "words, the way a picture book would print it. This names the "
+                           "folder the story lives in, so it must be a TITLE and never the "
+                           "story's opening sentence.",
+        },
         "telugu_moral": {"type": "string"},
         "moral_english": {"type": "string"},
         "moral_source": {"type": "string", "enum": ["printed", "composed"]},
     },
-    "required": ["scenes", "telugu_title", "telugu_moral",
+    "required": ["scenes", "telugu_title", "english_title", "telugu_moral",
                  "moral_english", "moral_source"],
 }
 
@@ -230,6 +243,7 @@ def assemble(script: dict, cast_records: list[dict], telling_mode: str = "silent
         moral_te, CHARS_PER_SEC, SOFT_CHARS, HARD_CHARS) if moral_te else ["moral is empty"]
     return {
         "title": script.get("telugu_title", ""),
+        "english_title": script.get("english_title", ""),
         "telugu_moral": moral_te,
         "moral_english": (script.get("moral_english") or "").strip(),
         "moral_source": script.get("moral_source", "composed"),

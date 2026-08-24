@@ -395,6 +395,9 @@ export default function StoryStudio() {
       { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ storyDir }) }, t.planScenes);
     if (!got) return;
+    // Planning the scenes is when the story finally has a real title, so the folder is
+    // renamed to match. Take the new path: the one we sent no longer exists.
+    if (got.storyDir) setStoryDir(got.storyDir);
     setScenes(got.scenes ?? []);
     setScreen("listen");
   }

@@ -5,7 +5,12 @@
   max-width: 1180px;
   margin: 0 auto;
   padding: 22px 20px 60px;
-  font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  /* Nirmala UI and Noto Sans Telugu are in the stack because almost every title on this page
+     is Telugu and "Segoe UI" has no Telugu glyphs at all. /story never overrides the family,
+     so it inherits a default that copes; this page did override it, which is the one thing
+     that differs between the two. A stack that cannot draw the script renders nothing. */
+  font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", "Nirmala UI",
+        "Noto Sans Telugu", "Gautami", sans-serif;
   color: #1d2228;
 }
 
@@ -80,14 +85,23 @@
 }
 
 /* ---------------------------------------------------------------- the table */
-.ad-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* Eight columns do not fit a phone. Scroll the table rather than letting it push the page
+   sideways, which hides the first column -- the one with the story's name in it. */
+.ad-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ad-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 620px; }
 .ad-table th {
   text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
   color: #98a1ac; font-weight: 600; padding: 0 9px 6px; border-bottom: 1px solid #e6e9ed;
 }
 .ad-table td { padding: 8px 9px; border-bottom: 1px solid #f0f2f4; vertical-align: top; }
 .ad-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ad-cell-title { max-width: 260px; }
+.ad-cell-title { max-width: 260px; min-width: 180px; }
+/* The folder the story is filed under. Shown because "which one is this on disk" is a
+   question this page exists to answer. */
+.ad-folder {
+  display: block; font-size: 11px; color: #98a1ac; margin-top: 2px;
+  font-family: ui-monospace, Consolas, monospace; word-break: break-all;
+}
 .ad-r-failed { background: #fefaf9; }
 .ad-r-abandoned { background: #fafafa; color: #8b949f; }
 .ad-over { color: #9a6a10; font-size: 11px; }

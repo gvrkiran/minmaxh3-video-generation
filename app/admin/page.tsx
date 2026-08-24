@@ -181,6 +181,7 @@ export default function Admin() {
             show finished
           </label>
         </div>
+        <div className="ad-scroll">
         <table className="ad-table">
           <thead>
             <tr>
@@ -195,6 +196,7 @@ export default function Admin() {
                   <td className="ad-cell-title">
                     <span className="ad-title">{j.title}</span>
                     {j.englishTitle && <span className="ad-sub">{j.englishTitle}</span>}
+                    <code className="ad-folder">{j.name}</code>
                   </td>
                   <td><span className={`ad-chip ad-${j.status.replace(/\s/g, "-")}`}>{j.status}</span>
                     <span className="ad-sub">{j.detail.slice(0, 60)}</span></td>
@@ -258,6 +260,7 @@ export default function Admin() {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       {board.recentErrors.length > 0 && (

@@ -8,6 +8,7 @@ import path from "node:path";
 import {
   MODULE_PATHS, readJson, readProgress, runPython, safeStoryDir, fail,
 } from "@/lib/story-runner";
+import { renameToTitle } from "@/lib/rename-story";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ type Script = {
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { storyDir?: string };
-    const dir = safeStoryDir(body.storyDir);
+    let dir = safeStoryDir(body.storyDir);
 
     const written = await runPython(MODULE_PATHS.script,
       ["--story", path.join(dir, "story.json"), "--cast", path.join(dir, "cast.json"),
@@ -37,6 +38,14 @@ export async function POST(request: Request) {
       );
     }
 
+    // The story's real title only exists now, so this is the moment to file it under that
+    // name: nothing is rendering, and no file yet written mentions the path. Before this it
+    // was named from a guess at the opening words -- once from an instruction she had pasted
+    // in by mistake. Everything below uses `dir`, which is where the story now lives.
+    const moved = await renameToTitle(dir);
+    dir = moved.dir;
+    if (moved.renamed) console.log(`renamed story ${moved.from} -> ${moved.to}`);
+
     const spoken = await runPython(MODULE_PATHS.pipeline,
       ["--story-dir", dir, "--only-stage", "narrate"], 1_200_000);
     if (spoken.code !== 0) throw new Error(`Could not record the telling. ${spoken.stderr.slice(-500)}`);
@@ -46,6 +55,9 @@ export async function POST(request: Request) {
 
     const progress = await readProgress(dir);
     return Response.json({
+      // The folder may have just been renamed, so hand the client the current path. Using
+      // the one it sent would point at a directory that no longer exists.
+      storyDir: dir,
       title: script?.title ?? "",
       moral: script?.telugu_moral ?? "",
       scenes: progress.scenes.map((scene) => {

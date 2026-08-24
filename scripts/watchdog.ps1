@@ -105,39 +105,69 @@ if ($down.Count -gt 0) {
 
 # ---------------------------------------------------------------- interrupted films
 #
-# A render whose driver is gone but which has no finished film is not going to restart
-# itself. This has now happened three times, always the same way: an empty .err file, so
-# nothing crashed -- the process was killed. Node spawns the driver with detached:true, which
-# on Windows does not survive the parent's job object, so anything that takes down the web app
-# takes the render with it, seventeen shots into eighteen.
+# A render whose driver is gone will not restart itself, and nobody finds out until somebody
+# asks what happened to a story. It has happened three times, always the same way: an empty
+# .err file, so nothing crashed -- the process was killed. Node spawns the driver with
+# detached:true, which on Windows does not survive the parent's job object, so anything that
+# takes down the web app takes the render with it.
 #
-# Rather than chase Windows process semantics, make it recoverable. Resuming is free: the
-# pipeline skips every shot already on disk, so it picks up exactly where it stopped.
-$stories = "H:\KathaluStudio\stories"
-foreach ($lock in Get-ChildItem "$stories\*\pipeline.lock" -ErrorAction SilentlyContinue) {
-  $dir = $lock.Directory
-  if (Test-Path (Join-Path $dir.FullName "final.mp4")) { continue }
-  try { $held = Get-Content -LiteralPath $lock.FullName -Raw | ConvertFrom-Json } catch { continue }
-  if (Get-Process -Id $held.pid -ErrorAction SilentlyContinue) { continue }
+# Interruption is detected from the WORK, not from a lock file. The first version keyed off
+# pipeline.lock and would have missed the very case it was written for -- the Akbar story died
+# leaving no lock behind at all, so there was nothing to find.
+#
+# The test is deliberately narrow, because resuming starts GPU work she did not just ask for.
+# Rendering has to be shown to have BEGUN -- at least one shot on disk -- and not finished. A
+# story with a scene plan and no shots is one she has not started, and it is left alone.
+$storiesRoot = "H:\KathaluStudio\stories"
+# The studio binds to the Tailscale address, not to localhost -- start-h3-studio.ps1 passes
+# --hostname explicitly -- so 127.0.0.1:3000 refuses the connection. Ask the listener where
+# it actually is rather than assuming.
+$webHost = (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -First 1).LocalAddress
+if ($webHost) {
+  foreach ($dir in Get-ChildItem $storiesRoot -Directory -ErrorAction SilentlyContinue) {
+    if ($dir.Name.StartsWith("_")) { continue }
+    if (Test-Path (Join-Path $dir.FullName "final.mp4")) { continue }
+    if (-not (Test-Path (Join-Path $dir.FullName "script.json"))) { continue }
 
-  # Only if there is actually something to resume -- a scene plan and at least one shot.
-  if (-not (Test-Path (Join-Path $dir.FullName "script.json"))) { continue }
+    $shots = @(Get-ChildItem (Join-Path $dir.FullName "shots") -Filter *.mp4 -ErrorAction SilentlyContinue)
+    if ($shots.Count -eq 0) { continue }
 
-  $aspect = "9:16"
-  $statePath = Join-Path $dir.FullName "state.json"
-  if (Test-Path $statePath) {
-    try { $aspect = (Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json).aspect } catch { }
-    if (-not $aspect) { $aspect = "9:16" }
-  }
-  Note "INTERRUPTED: $($dir.Name) (driver $($held.pid) is gone, no final.mp4) -- resuming"
-  $body = @{ storyDir = ($dir.FullName -replace '\', '/'); aspect = $aspect; voice = "female" } |
-          ConvertTo-Json -Compress
-  try {
-    $null = Invoke-WebRequest -Uri "http://127.0.0.1:3000/api/story/render" -Method Post `
-              -ContentType "application/json" -Body $body -UseBasicParsing -TimeoutSec 60
-    Note "  resume requested for $($dir.Name)"
-  } catch {
-    Note "  could not resume $($dir.Name): $($_.Exception.Message)"
+    $lockPath = Join-Path $dir.FullName "pipeline.lock"
+    if (Test-Path $lockPath) {
+      try {
+        $held = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+        if (Get-Process -Id $held.pid -ErrorAction SilentlyContinue) { continue }
+      } catch { }
+    }
+
+    $aspect = "9:16"
+    $statePath = Join-Path $dir.FullName "state.json"
+    if (Test-Path $statePath) {
+      try {
+        $saved = (Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json).aspect
+        if ($saved) { $aspect = $saved }
+      } catch { }
+    }
+
+    Note "INTERRUPTED: $($dir.Name) has $($shots.Count) shot(s) and no film -- resuming"
+    # .Replace() and not -replace: the latter takes a REGEX, and a lone backslash is not a
+    # valid one. It threw and killed this whole block the first time round.
+    $body = @{
+      storyDir = $dir.FullName.Replace('\', '/'); aspect = $aspect; voice = "female"
+    } | ConvertTo-Json -Compress
+    try {
+      # As UTF-8 BYTES, not as a string. Windows PowerShell encodes a string body in the
+      # system codepage, which mangles a Telugu folder name into something the studio cannot
+      # find -- the request then fails with a 500 that says nothing about why.
+      $payload = [System.Text.Encoding]::UTF8.GetBytes($body)
+      $null = Invoke-WebRequest -Uri "http://${webHost}:3000/api/story/render" -Method Post `
+                -ContentType "application/json; charset=utf-8" -Body $payload `
+                -UseBasicParsing -TimeoutSec 60
+      Note "  resume requested for $($dir.Name)"
+    } catch {
+      Note "  could not resume $($dir.Name): $($_.Exception.Message)"
+    }
   }
 }
 
