@@ -26,10 +26,11 @@ while ($true) {
     $studioHost = if ($candidate) { $candidate.Trim() } else { $null }
     $comfyOnline = Test-H3Port -ComputerName "127.0.0.1" -Port 8188
     $narrationOnline = Test-H3Port -ComputerName "127.0.0.1" -Port 8190
+    $voiceApiOnline = Test-H3Port -ComputerName "127.0.0.1" -Port 8200
     $siteOnline = $studioHost -and (Test-H3Port -ComputerName $studioHost -Port 3000)
-    if (-not $comfyOnline -or -not $narrationOnline -or -not $siteOnline) {
+    if (-not $comfyOnline -or -not $narrationOnline -or -not $siteOnline -or -not $voiceApiOnline) {
       $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-      Add-Content -LiteralPath $logPath -Value "$timestamp restarting unavailable H3 services (site=$siteOnline comfy=$comfyOnline narration=$narrationOnline)"
+      Add-Content -LiteralPath $logPath -Value "$timestamp restarting unavailable H3 services (site=$siteOnline comfy=$comfyOnline narration=$narrationOnline voiceApi=$voiceApiOnline)"
       & $startScript
     }
   } catch {

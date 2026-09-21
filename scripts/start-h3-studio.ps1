@@ -54,6 +54,22 @@ if (-not (Test-NetConnection -ComputerName 127.0.0.1 -Port 8190 -InformationLeve
     -RedirectStandardError (Join-Path $logRoot "indicf5.stderr.log")
 }
 
+# The four-accent English voice API behind /api/tts. Its models live in three different venvs --
+# they need mutually incompatible versions of transformers -- so the service drives them as child
+# processes. It binds localhost only; the website proxies it, which is how it reaches Tailscale.
+if (-not (Test-NetConnection -ComputerName 127.0.0.1 -Port 8200 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
+  $voiceRoot = "H:\H3RemoteStudio\VoiceAPI"
+  $voicePython = Join-Path $voiceRoot "venv\Scripts\python.exe"
+  if (Test-Path -LiteralPath $voicePython) {
+    Start-Process -FilePath $voicePython `
+      -ArgumentList @("-u", (Join-Path $voiceRoot "server.py")) `
+      -WorkingDirectory $voiceRoot `
+      -WindowStyle Hidden `
+      -RedirectStandardOutput (Join-Path $logRoot "voice-api.stdout.log") `
+      -RedirectStandardError (Join-Path $logRoot "voice-api.stderr.log")
+  }
+}
+
 $studioHost = $null
 # Tailscale can take a few minutes to reconnect immediately after sign-in.
 for ($attempt = 0; $attempt -lt 150 -and -not $studioHost; $attempt++) {
