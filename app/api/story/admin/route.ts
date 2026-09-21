@@ -13,6 +13,7 @@
  */
 import { promises as fs } from "node:fs";
 import { fail, join, readJson, STORIES_ROOT, STUDIO_ROOT } from "@/lib/story-runner";
+import { listReelJobs } from "@/lib/reels-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -217,6 +218,9 @@ export async function GET() {
         .map((line) => line.slice(0, 260))
       : [];
 
+    // Never let the garden panel take the whole dashboard down with it.
+    const reels = await listReelJobs().catch(() => []);
+
     const watchdog = await readJson<{ checkedAt?: string }>(
       join(STUDIO_ROOT, "app", "work", "health.json"));
     const lastCheck = watchdog?.checkedAt ? Date.parse(watchdog.checkedAt) : null;
@@ -237,6 +241,10 @@ export async function GET() {
         spentUsd: Math.round(jobs.reduce((n, j) => n + j.costUsd, 0) * 100) / 100,
       },
       jobs,
+      // Reels typed through /garden. Kept as their own list rather than merged into
+      // `jobs`: different shape, different owner, and merging would make every story
+      // field optional for no gain.
+      reels,
       recentErrors,
     }, { headers: { "cache-control": "no-store" } });
   } catch (caught) {

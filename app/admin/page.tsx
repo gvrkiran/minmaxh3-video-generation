@@ -28,6 +28,11 @@ type Job = {
   costUsd: number; stages: Record<string, string>; error: string | null;
   editsPending: Edit[]; editsApplied: string[]; editsRefused: string | null;
 };
+type Reel = {
+  slug: string; kind?: string; titleTe: string; titleEn: string; typedTip: string; understood: string;
+  status: string; detail: string; shotsDone: number; shotsTotal: number;
+  seconds: number | null; sizeMb: number | null; updatedAt: number; error: string | null;
+};
 type Board = {
   now: number;
   gpu: { making?: string; forStory?: string; pid?: number; since?: number } | null;
@@ -37,6 +42,7 @@ type Board = {
     failed: number; editsWaiting: number; spentUsd: number;
   };
   jobs: Job[];
+  reels?: Reel[];
   recentErrors: string[];
 };
 
@@ -262,6 +268,41 @@ export default function Admin() {
         </table>
         </div>
       </section>
+
+      {(board.reels?.length ?? 0) > 0 && (
+        <section>
+          <h2>Garden and painting videos</h2>
+          <table className="ad-table">
+            <thead>
+              <tr>
+                <th>Video</th><th>State</th><th>Pictures</th><th>Size</th><th>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {board.reels!.map((r) => (
+                <Fragment key={r.slug}>
+                  <tr>
+                    <td>
+                      <div>{r.titleTe || r.titleEn}</div>
+                      {r.kind === "paint" && <div className="ad-sub">painting</div>}
+                      {r.kind === "concept" && <div className="ad-sub">concept</div>}
+                      {r.typedTip && <div className="ad-sub">typed: {r.typedTip}</div>}
+                    </td>
+                    <td><span className={`ad-chip ad-${r.status}`}>{r.status}</span>
+                      <div className="ad-sub">{r.detail}</div></td>
+                    <td>{r.shotsDone}/{r.shotsTotal}</td>
+                    <td>{r.sizeMb !== null ? `${r.sizeMb} MB` : "-"}</td>
+                    <td>{ago(r.updatedAt, board.now)}</td>
+                  </tr>
+                  {r.error && (
+                    <tr><td colSpan={5}><pre className="ad-log">{r.error}</pre></td></tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {board.recentErrors.length > 0 && (
         <section>
