@@ -24,17 +24,37 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-import torch
-import torchaudio
-from transformers import AutoModel
 
-# Windows: TorchCodec wheels want shared FFmpeg DLLs; libsndfile does not.
-def _sf_load(uri, *a, **k):
-    audio, sr = sf.read(str(uri), dtype="float32", always_2d=True)
-    return torch.from_numpy(audio.T.copy()), int(sr)
+# torch is imported LAZILY, inside load_model(), and that is deliberate.
+#
+# Every scene's wav is cached on disk, so a re-run of a story whose narration is already done
+# has no need of torch at all -- it only reads the wavs back to measure them, which soundfile
+# does. But torch used to be imported at module scope, so a torch that would not load took
+# the whole stage down even when there was nothing to synthesise.
+#
+# That is not hypothetical. On 2026-09-08 a fully-narrated 15-scene story died here with
+#   OSError: [WinError 1114] ... shm.dll ... initialization routine failed
+# on a re-run, and sat "stuck" for hours. torch imported fine again minutes later, so the
+# failure was transient -- most likely the graphics driver still settling after one of this
+# machine's reboots. A transient torch fault should cost a retry, not a story.
 
 
-torchaudio.load = _sf_load
+def load_model():
+    """Import torch and bring IndicF5 up. Called only when something must be synthesised."""
+    import torch
+    import torchaudio
+    from transformers import AutoModel
+
+    # Windows: TorchCodec wheels want shared FFmpeg DLLs; libsndfile does not.
+    def _sf_load(uri, *a, **k):
+        audio, sr = sf.read(str(uri), dtype="float32", always_2d=True)
+        return torch.from_numpy(audio.T.copy()), int(sr)
+
+    torchaudio.load = _sf_load
+
+    model = AutoModel.from_pretrained("ai4bharat/IndicF5", trust_remote_code=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return model.to(torch.device(device)).eval(), torch, device
 
 SR = 24000
 # The reference clips live in the app's work/ directory. Derived from this file's own
@@ -79,13 +99,12 @@ def main() -> None:
           f"({len(scenes) - len(todo)} already done)")
 
     model = None
+    torch = None
     if todo:
         release_comfy()
         t0 = time.time()
-        model = AutoModel.from_pretrained("ai4bharat/IndicF5", trust_remote_code=True)
-        model = model.to(torch.device("cuda" if torch.cuda.is_available() else "cpu")).eval()
-        print(f"  IndicF5 loaded in {time.time() - t0:.1f}s on "
-              f"{'cuda' if torch.cuda.is_available() else 'cpu'}")
+        model, torch, device = load_model()
+        print(f"  IndicF5 loaded in {time.time() - t0:.1f}s on {device}")
 
     results = []
     for scene in scenes:
@@ -125,8 +144,7 @@ def main() -> None:
     if moral and not moral_wav.exists():
         if model is None:
             release_comfy()
-            model = AutoModel.from_pretrained("ai4bharat/IndicF5", trust_remote_code=True)
-            model = model.to(torch.device("cuda" if torch.cuda.is_available() else "cpu")).eval()
+            model, torch, _ = load_model()
         with torch.inference_mode():
             audio = model(moral, ref_audio_path=str(ref_wav), ref_text=ref_text)
         if getattr(audio, "dtype", None) == np.int16:
@@ -142,7 +160,7 @@ def main() -> None:
 
     if model is not None:
         del model
-        if torch.cuda.is_available():
+        if torch is not None and torch.cuda.is_available():
             torch.cuda.empty_cache()
         print("  IndicF5 unloaded")
 
