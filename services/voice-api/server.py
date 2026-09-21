@@ -25,8 +25,10 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -157,6 +159,24 @@ class Worker:
         self.last_used = time.time()
         self.ready = False
 
+        # Drain stderr continuously into a small ring buffer. This is not for the logging: a
+        # pipe nobody reads fills at about 64 KB and then the WRITER BLOCKS. These libraries are
+        # chatty on load (deprecation warnings, progress bars), so an undrained stderr wedges the
+        # worker mid-import and it looks exactly like a model that died. Keep this thread.
+        self.errlog: deque[str] = deque(maxlen=200)
+        self._drain = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._drain.start()
+
+    def _drain_stderr(self) -> None:
+        try:
+            for line in self.proc.stderr:
+                self.errlog.append(line.rstrip())
+        except Exception:
+            pass
+
+    def recent_errors(self, limit: int = 12) -> str:
+        return "\n".join(list(self.errlog)[-limit:])
+
     async def _read_json_line(self, timeout_s: int) -> dict:
         """Next JSON object the worker prints, skipping any chatter these libraries emit first."""
         deadline = time.time() + timeout_s
@@ -166,8 +186,8 @@ class Worker:
                 raise asyncio.TimeoutError()
             line = await asyncio.wait_for(asyncio.to_thread(self.proc.stdout.readline), remaining)
             if not line:
-                err = self.proc.stderr.read()[-2000:] if self.proc.stderr else ""
-                raise RuntimeError(f"{self.engine} worker exited: {err}")
+                raise RuntimeError(
+                    f"{self.engine} worker exited (code {self.proc.poll()}): {self.recent_errors()}")
             line = line.strip()
             if line.startswith("{"):
                 try:
@@ -225,16 +245,29 @@ async def ensure_worker(engine: str) -> Worker:
             })
         await asyncio.sleep(5)
 
-    await free_comfy()
-    worker = Worker(engine)
-    take_gpu_lock(worker.proc.pid, f"voice-api ({engine})")
-    try:
-        await worker.wait_ready(ENGINES[engine]["load_s"] + 60)
-    except Exception:
-        await asyncio.to_thread(worker.stop)
-        raise
-    current = worker
-    return worker
+    # Loading a model onto a card that something else just let go of is occasionally flaky, so
+    # one retry rather than handing the caller a 500 for a hiccup it cannot do anything about.
+    last_error: Exception | None = None
+    for attempt in (1, 2):
+        await free_comfy()
+        worker = Worker(engine)
+        take_gpu_lock(worker.proc.pid, f"voice-api ({engine})")
+        try:
+            await worker.wait_ready(ENGINES[engine]["load_s"] + 60)
+        except Exception as caught:
+            last_error = caught
+            await asyncio.to_thread(worker.stop)
+            print(f"[voice-api] {engine} failed to load (attempt {attempt}): {caught}", flush=True)
+            if attempt == 1:
+                await asyncio.sleep(3)
+            continue
+        current = worker
+        return worker
+
+    raise HTTPException(status_code=500, detail={
+        "error": f"the {engine} voice failed to load twice",
+        "detail": str(last_error)[:800],
+    })
 
 
 async def idle_reaper() -> None:
