@@ -57,13 +57,16 @@ if (-not (Test-NetConnection -ComputerName 127.0.0.1 -Port 8190 -InformationLeve
 # The four-accent English voice API behind /api/tts. Its models live in three different venvs --
 # they need mutually incompatible versions of transformers -- so the service drives them as child
 # processes. It binds localhost only; the website proxies it, which is how it reaches Tailscale.
+# Its code is versioned here in services\voice-api; its venv, weights and generated audio sit
+# outside the repo under H:\H3RemoteStudio\VoiceAPI -- the same split indicf5 above uses.
 if (-not (Test-NetConnection -ComputerName 127.0.0.1 -Port 8200 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
-  $voiceRoot = "H:\H3RemoteStudio\VoiceAPI"
-  $voicePython = Join-Path $voiceRoot "venv\Scripts\python.exe"
-  if (Test-Path -LiteralPath $voicePython) {
+  $voiceData = "H:\H3RemoteStudio\VoiceAPI"
+  $voicePython = Join-Path $voiceData "venv\Scripts\python.exe"
+  $voiceServer = Join-Path $studioRoot "services\voice-api\server.py"
+  if ((Test-Path -LiteralPath $voicePython) -and (Test-Path -LiteralPath $voiceServer)) {
     Start-Process -FilePath $voicePython `
-      -ArgumentList @("-u", (Join-Path $voiceRoot "server.py")) `
-      -WorkingDirectory $voiceRoot `
+      -ArgumentList @("-u", $voiceServer) `
+      -WorkingDirectory $studioRoot `
       -WindowStyle Hidden `
       -RedirectStandardOutput (Join-Path $logRoot "voice-api.stdout.log") `
       -RedirectStandardError (Join-Path $logRoot "voice-api.stderr.log")

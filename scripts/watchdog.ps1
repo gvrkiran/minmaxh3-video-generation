@@ -24,9 +24,10 @@ $confirmSeconds = 90
 New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
 
 $services = @(
-  @{ name = "comfyui"; port = 8188; what = "the picture and video model" }
-  @{ name = "voice";   port = 8190; what = "the Telugu voice" }
-  @{ name = "web";     port = 3000; what = "the website she uses" }
+  @{ name = "comfyui";   port = 8188; what = "the picture and video model" }
+  @{ name = "voice";     port = 8190; what = "the Telugu voice" }
+  @{ name = "voice-api"; port = 8200; what = "the four-accent English voice behind /api/tts" }
+  @{ name = "web";       port = 3000; what = "the website she uses" }
 )
 
 function Note([string]$text) {

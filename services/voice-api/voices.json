@@ -1,0 +1,37 @@
+{
+  "_comment": "The four chosen voices. Each names an engine and everything that engine needs. Chosen by Kiran after listening to the full comparison in H:/H3RemoteStudio/AccentTest/LISTEN and FINAL.",
+
+  "indian": {
+    "engine": "maya1",
+    "label": "Indian immigrant speaking English",
+    "description": "Realistic male voice in his 30s, an Indian immigrant with an Indian accent speaking English. Normal pitch, warm timbre, conversational pacing.",
+    "temperature": 0.4,
+    "repetition_penalty": 1.1
+  },
+
+  "american": {
+    "engine": "maya1",
+    "label": "General American English",
+    "description": "Realistic male voice in his 30s with a General American accent, a native English speaker. Normal pitch, warm timbre, conversational pacing.",
+    "temperature": 0.4,
+    "repetition_penalty": 1.1
+  },
+
+  "african": {
+    "engine": "afrotts",
+    "label": "Kenyan (Kiswahili-speaking) English",
+    "reference": "H:/H3RemoteStudio/AccentRefs/kenyan/afrispeech_kiswahili_15f6bd73.wav",
+    "reference_note": "AfriSpeech-200, CC BY-NC-SA 4.0, card says research purposes only",
+    "gpt_cond_len": 6,
+    "temperature": 0.75
+  },
+
+  "middle_eastern": {
+    "engine": "chatterbox",
+    "label": "Levantine Arabic (Lebanese) English",
+    "reference": "H:/H3RemoteStudio/AccentRefs/middle_eastern/saa_arabic21.wav",
+    "reference_note": "Speech Accent Archive, CC BY-NC-SA 2.0, non-commercial",
+    "exaggeration": 0.5,
+    "cfg_weight": 0.5
+  }
+}

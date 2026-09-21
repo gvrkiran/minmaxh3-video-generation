@@ -40,9 +40,10 @@ async function alive(pid: number): Promise<boolean> {
 
 export async function GET() {
   try {
-    const [comfy, voice] = await Promise.all([
+    const [comfy, voice, voiceApi] = await Promise.all([
       serving(8188, "/system_stats"),
       serving(8190, "/health"),
+      serving(8200, "/health"),
     ]);
 
     // This route answering at all proves the website is up, so it is not probed.
@@ -50,6 +51,7 @@ export async function GET() {
       website: { up: true, does: "the pages she uses" },
       pictures: { up: comfy, does: "drawing the characters and making the video" },
       voice: { up: voice, does: "reading the story aloud in Telugu" },
+      accentedVoice: { up: voiceApi, does: "speaking English in four accents, for /api/tts" },
     };
 
     const gpu = await readJson<Held>(join(STUDIO_ROOT, "gpu.lock"));
