@@ -86,10 +86,49 @@ app = FastAPI(title="Voice API", version="1.0")
 
 
 class Speak(BaseModel):
-    voice: str = Field(..., description="indian | american | african | middle_eastern")
+    voice: str = Field(..., description="accent (indian|american|african|middle_eastern), "
+                                        "optionally with _male/_female")
     text: str = Field(..., min_length=1, max_length=5000)
+    gender: str | None = Field(None, description="male | female")
     seed: int = 1234
     keep: bool = Field(False, description="keep the wav on disk and return JSON instead of audio")
+
+
+# What an accent name alone resolves to. These are the voices Kiran originally picked, kept as the
+# defaults so calls written before gender existed keep returning the same voice they always did.
+DEFAULT_GENDER = {
+    "indian": "male", "american": "male", "african": "male", "middle_eastern": "female",
+}
+ACCENTS = sorted({v["accent"] for v in VOICES.values()})
+GENDERS = ("male", "female")
+
+
+def resolve_voice(name: str, gender: str | None) -> tuple[str, dict]:
+    """Accept 'indian_female', or 'indian' plus gender='female', or bare 'indian'."""
+    name = (name or "").strip().lower()
+    gender = (gender or "").strip().lower() or None
+    if gender and gender not in GENDERS:
+        raise HTTPException(status_code=400, detail={
+            "error": f"unknown gender {gender!r}", "available": list(GENDERS)})
+
+    if name in VOICES:                      # already a full key, e.g. indian_female
+        if gender and VOICES[name]["gender"] != gender:
+            raise HTTPException(status_code=400, detail={
+                "error": f"{name!r} is {VOICES[name]['gender']}, but gender={gender!r} was asked for",
+                "hint": f"use voice='{VOICES[name]['accent']}' with gender='{gender}'"})
+        return name, VOICES[name]
+
+    if name in ACCENTS:                     # an accent, plus gender or the default
+        key = f"{name}_{gender or DEFAULT_GENDER.get(name, 'male')}"
+        if key in VOICES:
+            return key, VOICES[key]
+
+    raise HTTPException(status_code=400, detail={
+        "error": f"unknown voice {name!r}",
+        "accents": ACCENTS, "genders": list(GENDERS),
+        "voices": sorted(VOICES),
+        "hint": "send voice='african' with gender='female', or voice='african_female'",
+    })
 
 
 # ---------------------------------------------------------------- GPU lock (shared with Kathalu)
@@ -310,24 +349,29 @@ async def health():
 @app.get("/voices")
 async def voices():
     return {
-        name: {
-            "engine": v["engine"],
-            "label": v.get("label", ""),
-            "sounds_like": v.get("reference_note", "designed from a text description, no reference audio"),
-        }
-        for name, v in VOICES.items()
+        "accents": ACCENTS,
+        "genders": list(GENDERS),
+        "howToAsk": "voice='african' with gender='female', or voice='african_female'",
+        "defaultGenderWhenOmitted": DEFAULT_GENDER,
+        "voices": {
+            name: {
+                "accent": v["accent"],
+                "gender": v["gender"],
+                "engine": v["engine"],
+                "label": v.get("label", ""),
+                "sounds_like": v.get("reference_note",
+                                     "designed from a text description, no reference audio"),
+            }
+            for name, v in sorted(VOICES.items())
+        },
     }
 
 
 @app.post("/tts")
 async def tts(req: Speak):
-    voice = VOICES.get(req.voice)
-    if not voice:
-        raise HTTPException(status_code=400, detail={
-            "error": f"unknown voice {req.voice!r}", "available": sorted(VOICES)})
-
+    voice_key, voice = resolve_voice(req.voice, req.gender)
     engine = voice["engine"]
-    out_path = OUT_DIR / f"{req.voice}_{uuid.uuid4().hex[:12]}.wav"
+    out_path = OUT_DIR / f"{voice_key}_{uuid.uuid4().hex[:12]}.wav"
     job = {"text": req.text, "out": str(out_path), "seed": req.seed}
     if engine == "maya1":
         job |= {"description": voice["description"],
@@ -337,7 +381,7 @@ async def tts(req: Speak):
         ref = voice["reference"]
         if not Path(ref).exists():
             raise HTTPException(status_code=500, detail={
-                "error": f"reference clip missing for {req.voice}", "path": ref})
+                "error": f"reference clip missing for {voice_key}", "path": ref})
         job |= {"reference": ref}
         if engine == "chatterbox":
             job |= {"exaggeration": voice.get("exaggeration", 0.5),
@@ -358,11 +402,12 @@ async def tts(req: Speak):
 
     if not result.get("ok"):
         raise HTTPException(status_code=500, detail={
-            "error": result.get("error", "generation failed"), "voice": req.voice, "engine": engine})
+            "error": result.get("error", "generation failed"), "voice": voice_key, "engine": engine})
 
     if req.keep:
         return JSONResponse({
-            "ok": True, "voice": req.voice, "engine": engine, "path": str(out_path),
+            "ok": True, "voice": voice_key, "accent": voice["accent"], "gender": voice["gender"],
+            "engine": engine, "path": str(out_path),
             "seconds": result.get("seconds"), "sampleRate": result.get("sample_rate"),
             "generationSeconds": result.get("wall"),
         })
@@ -370,7 +415,8 @@ async def tts(req: Speak):
     return FileResponse(
         out_path, media_type="audio/wav", filename=out_path.name,
         headers={
-            "X-Voice": req.voice, "X-Engine": engine,
+            "X-Voice": voice_key, "X-Accent": voice["accent"], "X-Gender": voice["gender"],
+            "X-Engine": engine,
             "X-Audio-Seconds": str(result.get("seconds")),
             "X-Generation-Seconds": str(result.get("wall")),
         })

@@ -1,34 +1,80 @@
 {
-  "_comment": "The four chosen voices. Each names an engine and everything that engine needs. Chosen by Kiran after listening to the full comparison in H:/H3RemoteStudio/AccentTest/LISTEN and FINAL.",
+  "_comment": "Four accents x two genders. Keys are <accent>_<gender>; the API also accepts an accent name plus a separate gender parameter. Maya1 voices are described in words; the cloned ones point at a real speaker of that gender, which is why gender is a different reference clip rather than a pitch knob.",
 
-  "indian": {
+  "indian_male": {
     "engine": "maya1",
-    "label": "Indian immigrant speaking English",
+    "accent": "indian",
+    "gender": "male",
+    "label": "Indian man speaking English",
     "description": "Realistic male voice in his 30s, an Indian immigrant with an Indian accent speaking English. Normal pitch, warm timbre, conversational pacing.",
     "temperature": 0.4,
     "repetition_penalty": 1.1
   },
-
-  "american": {
+  "indian_female": {
     "engine": "maya1",
-    "label": "General American English",
-    "description": "Realistic male voice in his 30s with a General American accent, a native English speaker. Normal pitch, warm timbre, conversational pacing.",
+    "accent": "indian",
+    "gender": "female",
+    "label": "Indian woman speaking English",
+    "description": "Realistic female voice in her 30s, an Indian immigrant woman with an Indian accent speaking English. Normal pitch, warm timbre, conversational pacing.",
     "temperature": 0.4,
     "repetition_penalty": 1.1
   },
 
-  "african": {
+  "american_male": {
+    "engine": "maya1",
+    "accent": "american",
+    "gender": "male",
+    "label": "American man",
+    "description": "Realistic male voice in his 30s with a General American accent, a native English speaker. Normal pitch, warm timbre, conversational pacing.",
+    "temperature": 0.4,
+    "repetition_penalty": 1.1
+  },
+  "american_female": {
+    "engine": "maya1",
+    "accent": "american",
+    "gender": "female",
+    "label": "American woman",
+    "description": "Realistic female voice in her 30s with a General American accent, a native English speaker. Normal pitch, warm timbre, conversational pacing.",
+    "temperature": 0.4,
+    "repetition_penalty": 1.1
+  },
+
+  "african_male": {
     "engine": "afrotts",
-    "label": "Kenyan (Kiswahili-speaking) English",
+    "accent": "african",
+    "gender": "male",
+    "label": "Kenyan man, Kiswahili-speaking",
     "reference": "H:/H3RemoteStudio/AccentRefs/kenyan/afrispeech_kiswahili_15f6bd73.wav",
     "reference_note": "AfriSpeech-200, CC BY-NC-SA 4.0, card says research purposes only",
     "gpt_cond_len": 6,
     "temperature": 0.75
   },
+  "african_female": {
+    "engine": "afrotts",
+    "accent": "african",
+    "gender": "female",
+    "label": "Kenyan woman, Kikuyu-speaking",
+    "reference": "H:/H3RemoteStudio/AccentRefs/kenyan/afrispeech_kikuyu_0672245f.wav",
+    "reference_note": "AfriSpeech-200, CC BY-NC-SA 4.0, card says research purposes only",
+    "gpt_cond_len": 6,
+    "temperature": 0.75
+  },
 
-  "middle_eastern": {
+  "middle_eastern_male": {
     "engine": "chatterbox",
-    "label": "Levantine Arabic (Lebanese) English",
+    "accent": "middle_eastern",
+    "gender": "male",
+    "label": "Gulf Arabic (Saudi) man",
+    "reference": "H:/H3RemoteStudio/AccentRefs/middle_eastern/saa_arabic50.wav",
+    "reference_note": "Speech Accent Archive, CC BY-NC-SA 2.0, non-commercial",
+    "exaggeration": 0.5,
+    "cfg_weight": 0.5
+  },
+  "middle_eastern_female": {
+    "engine": "chatterbox",
+    "accent": "middle_eastern",
+    "gender": "female",
+    "label": "Levantine Arabic (Lebanese) woman",
     "reference": "H:/H3RemoteStudio/AccentRefs/middle_eastern/saa_arabic21.wav",
     "reference_note": "Speech Accent Archive, CC BY-NC-SA 2.0, non-commercial",
     "exaggeration": 0.5,

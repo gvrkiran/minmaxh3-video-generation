@@ -1,40 +1,57 @@
-# Voice API — English in four accents
+# Voice API — English in four accents, male or female
 
     POST http://100.90.163.26:3000/api/tts
 
 ```bash
 curl -X POST http://100.90.163.26:3000/api/tts \
   -H "Content-Type: application/json" \
-  -d '{"voice":"middle_eastern","text":"Hello, this is a test."}' \
+  -d '{"voice":"middle_eastern","gender":"female","text":"Hello, this is a test."}' \
   --output hello.wav
 ```
 
 That returns a 24 kHz mono WAV. `GET http://100.90.163.26:3000/api/tts` lists the voices and
 repeats this usage, so the endpoint documents itself.
 
-## The four voices
+## The eight voices
 
-| `voice` | sounds like | engine | how the accent is produced |
-|---|---|---|---|
-| `indian` | Indian immigrant speaking English | Maya1 | described in words, no reference audio |
-| `american` | General American | Maya1 | described in words, no reference audio |
-| `african` | Kenyan, Kiswahili-speaking | Afro-TTS | clones a real Kenyan speaker |
-| `middle_eastern` | Levantine Arabic, Lebanese | Chatterbox | clones a real Lebanese speaker |
+| accent | gender | sounds like | engine | how it is produced |
+|---|---|---|---|---|
+| `indian` | male | Indian man | Maya1 | described in words |
+| `indian` | female | Indian woman | Maya1 | described in words |
+| `american` | male | American man | Maya1 | described in words |
+| `american` | female | American woman | Maya1 | described in words |
+| `african` | male | Kenyan man, Kiswahili-speaking | Afro-TTS | clones a real speaker |
+| `african` | female | Kenyan woman, Kikuyu-speaking | Afro-TTS | clones a real speaker |
+| `middle_eastern` | male | Gulf Arabic, Saudi man | Chatterbox | clones a real speaker |
+| `middle_eastern` | female | Levantine Arabic, Lebanese woman | Chatterbox | clones a real speaker |
 
-Chosen by ear from the full comparison in `H:/H3RemoteStudio/AccentTest/LISTEN` and `FINAL`.
+Accents chosen by ear from the comparison in `H:/H3RemoteStudio/AccentTest/LISTEN` and `FINAL`.
+**Gender is a different speaker, not a pitch setting** — for the cloned accents it is a different
+reference recording, and for the Maya1 ones a different description. Measured median pitch runs
+99-115 Hz for the male voices and 163-224 Hz for the female ones.
 
 ## Options
 
 ```jsonc
 {
-  "voice": "african",     // required
+  "voice": "african",     // required: an accent, or a full name like "african_female"
   "text": "...",          // required, up to 5000 characters
+  "gender": "female",     // optional: male | female
   "seed": 1234,           // optional; same seed + same text = same audio
   "keep": false           // optional; true returns JSON with a path on disk instead of audio
 }
 ```
 
-Response headers carry `X-Voice`, `X-Engine`, `X-Audio-Seconds`, `X-Generation-Seconds`.
+Two equivalent ways to ask: `voice: "african", gender: "female"`, or `voice: "african_female"`.
+Asking for both in a contradictory way (`voice: "indian_male", gender: "female"`) is a 400 rather
+than a silent choice.
+
+**Omitting `gender` keeps whatever that accent returned before gender existed** — male for
+`indian`, `american` and `african`, female for `middle_eastern` — so calls written earlier still
+produce the same voice. New code should pass `gender` explicitly rather than rely on that.
+
+Response headers carry `X-Voice`, `X-Accent`, `X-Gender`, `X-Engine`, `X-Audio-Seconds`,
+`X-Generation-Seconds`.
 
 ## Speed, and why it varies
 
@@ -45,9 +62,11 @@ Only one engine is held in memory at a time, so the first call to a voice pays a
 | same voice again, or another voice on the same engine | **8–14 s** |
 | a voice on a different engine (model swap) | **25–35 s** |
 
-`indian` and `american` share an engine, so alternating those two is fast. Alternating
-`african` and `middle_eastern` reloads a model every time. **If you are generating a batch,
-group your calls by voice** — it is several times faster.
+**Gender is free — it never swaps the engine.** `indian` and `american` in either gender all run
+on Maya1, so any mix of those four is fast. `african` male and female both run on Afro-TTS, and
+both `middle_eastern` voices on Chatterbox. What costs a reload is moving between those three
+groups. **If you are generating a batch, group your calls by accent** — genders can be
+interleaved freely within a group.
 
 ## Sharing the graphics card
 

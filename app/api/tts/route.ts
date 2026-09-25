@@ -17,7 +17,9 @@ export const dynamic = "force-dynamic";
 const VOICE_API = process.env.VOICE_API_URL ?? "http://127.0.0.1:8200";
 const TIMEOUT_MS = 300_000;
 
-type SpeakBody = { voice?: string; text?: string; seed?: number; keep?: boolean };
+type SpeakBody = {
+  voice?: string; text?: string; gender?: string; seed?: number; keep?: boolean;
+};
 
 function down(caught: unknown) {
   return Response.json({
@@ -36,7 +38,12 @@ export async function GET() {
       usage: {
         method: "POST",
         url: "/api/tts",
-        body: { voice: "one of the names below", text: "what to say", seed: "optional, default 1234" },
+        body: {
+          voice: "an accent below, or an accent_gender name",
+          text: "what to say",
+          gender: "optional, male or female",
+          seed: "optional, default 1234",
+        },
         returns: "audio/wav bytes; pass keep:true instead to get JSON with a path on disk",
       },
       voices,
@@ -67,7 +74,10 @@ export async function POST(request: Request) {
     const response = await fetch(`${VOICE_API}/tts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ voice, text, seed: body.seed ?? 1234, keep: body.keep ?? false }),
+      body: JSON.stringify({
+        voice, text, gender: body.gender ?? null,
+        seed: body.seed ?? 1234, keep: body.keep ?? false,
+      }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
@@ -88,6 +98,8 @@ export async function POST(request: Request) {
         "content-type": "audio/wav",
         "cache-control": "no-store",
         "x-voice": response.headers.get("x-voice") ?? voice,
+        "x-accent": response.headers.get("x-accent") ?? "",
+        "x-gender": response.headers.get("x-gender") ?? "",
         "x-engine": response.headers.get("x-engine") ?? "",
         "x-audio-seconds": response.headers.get("x-audio-seconds") ?? "",
         "x-generation-seconds": response.headers.get("x-generation-seconds") ?? "",
